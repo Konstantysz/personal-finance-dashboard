@@ -47,28 +47,46 @@ an empty/small repo are exactly what a real user does first.
 
 ## `personal-finance-dashboard monthly` - month close
 
+✅ **Implemented and tested** (session 2026-08-23).
+
 Spec: `.claude/commands/monthly.md`. Comparison of the last full month with the
 previous one, rolling 3M, same month a year earlier (with a caveat about the
 ACTIVE/ARCHIVE boundary). Reminder about the IKZE deadline in November/December.
 
+Implementation includes:
+
+- `monthly_summary()` in `data.py` — category statistics and overall stats
+- `detect_fixed_costs()` in `data.py` — heuristic identification with disclaimer
+- `plot_monthly_categories_stacked()` in `charts.py` — stacked bar chart
+- `_build_monthly_report()` in `cli.py` — markdown report generation
+- `monthly` CLI command — orchestration
+- 15 new unit tests for full coverage of new code
+- Fixed costs are explicitly marked as HEURISTIC in both JSON and markdown
+
 ## `personal-finance-dashboard category <name>` - deep dive into a category
+
+✅ **Implemented** (previous session).
 
 Spec: `.claude/commands/category.md`. Amount distribution, top counterparties,
 rolling 3M trend, context from ARCHIVE with a caveat about lifestyle change.
 
 ## `personal-finance-dashboard invest` - investment plan
 
+✅ **Implemented** (previous session).
+
 Spec: `.claude/commands/investments.md`. Requires beforehand:
 `check_parameters_freshness` (already in `data.py`) + an actual balance from
 `analyze`. Always two scenarios (conservative/base), never one number.
 
-## `personal-finance-dashboard taxes` (or a separate `invest --tax` flag) - IKE/IKZE
+## `personal-finance-dashboard taxes` - IKE/IKZE calculation
 
-Spec: `.claude/commands/taxes.md`. Separate command or a flag to `invest` -
-to be decided at implementation; the working name was not settled in this
-session.
+✅ **Implemented** (previous session, separate command).
+
+Spec: `.claude/commands/taxes.md`. Calculates current-year IKE and IKZE room.
 
 ## `personal-finance-dashboard goal <name>` - goal simulation
+
+✅ **Implemented** (previous session).
 
 Spec: `.claude/commands/goal.md`. Three scenarios (conservative/base/random
 event), seasonality from ARCHIVE included in the annual projection.
