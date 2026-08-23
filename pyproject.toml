@@ -5,14 +5,13 @@ build-backend = "hatchling.build"
 [project]
 name = "personal-finance-dashboard"
 version = "0.1.0"
-description = "Analiza finansow osobistych - CLI + agent Claude Code"
+description = "Personal finance analysis — CLI + Claude Code agent"
 requires-python = ">=3.12"
 
-authors = [
-    { name = "Konstanty", email = "" }
-]
+authors = [{ name = "Konstanty Szumigaj" }]
 
-license = { text = "proprietary" }
+license = "MIT"
+license-files = ["LICENSE"]
 dependencies = [
     "pydantic-settings>=2.0",
     "typer>=0.12",
@@ -39,10 +38,7 @@ dev = [
     "pandas-stubs",
     "types-PyYAML",
 ]
-docs = [
-    "mkdocs-material",
-    "mkdocstrings[python]",
-]
+docs = ["mkdocs-material", "mkdocstrings[python]"]
 
 [tool.ruff]
 line-length = 100

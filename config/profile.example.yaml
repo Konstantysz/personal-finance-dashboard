@@ -1,5 +1,5 @@
-# Szablon. Agent wypełnia go podczas /profil i zapisuje jako config/profile.yaml.
-# profile.yaml jest w .gitignore — nie trafia do repo.
+# Template. The agent fills it in during /profil and saves it as config/profile.yaml.
+# profile.yaml is in .gitignore — it does not go into the repo.
 
 meta:
   utworzony: null
@@ -7,35 +7,35 @@ meta:
 
 osoba:
   wiek: null
-  forma_zatrudnienia: null      # etat | jdg | inne  — determinuje limit IKZE
-  prog_podatkowy: null          # 12 | 32 — determinuje wartość ulgi IKZE
+  forma_zatrudnienia: null      # etat | jdg | inne — determines the IKZE limit
+  prog_podatkowy: null          # 12 | 32 — determines the value of the IKZE deduction
   dochod_netto_miesiecznie: null
   dochod_stabilny: null         # true | false
-  dzien_wyplaty: null           # dzień miesiąca, wykryty z danych i potwierdzony
+  dzien_wyplaty: null           # day of month, detected from data and confirmed
 
-# --- Podział okresu. Najważniejsza sekcja pliku. ---------------------------
+# --- Period division. The most important section of the file. -----------------
 okresy:
   regime_change_date: 2025-08-01
-  regime_change_opis: "przeprowadzka — samodzielne mieszkanie"
-  regime_change_potwierdzony: false   # agent ustawia true po weryfikacji z użytkownikiem
+  regime_change_opis: "move — independent apartment"
+  regime_change_potwierdzony: false   # agent sets to true after verification with the user
   archive_od: 2022-07-01
-  # Wcześniejsze zmiany reżimu, jeśli występują (zmiana pracy, wyprowadzka
-  # od rodziców, koniec studiów). Format: data + opis.
+  # Earlier regime changes, if any (job change, moving out from parents,
+  # end of studies). Format: date + description.
   inne_przelomy: []
 
 konta:
-  oszczednosciowe: []           # tylko te; transfery TUTAJ = oszczędności
+  oszczednosciowe: []           # only these; transfers HERE = savings
   biezace: []
   inwestycyjne: []
-  wykluczone_z_majatku: []      # np. karta lunchowa (benefit, nie płynne środki)
-  # Rzeczywiste salda na dzień — do sanity checku względem sumy transakcji
+  wykluczone_z_majatku: []      # e.g., lunch card (benefit, not liquid funds)
+  # Actual balances as of a date — for sanity check against the transaction sum
   salda_rzeczywiste:
     data: null
     wartosci: {}
 
 cele:
   krotkoterminowe: []
-    # - nazwa: "wkład własny na mieszkanie"
+    # - nazwa: "down payment for an apartment"
     #   kwota: 150000
     #   termin: 2029-08
     #   priorytet: 1
@@ -44,11 +44,11 @@ cele:
 profil_inwestycyjny:
   tolerancja_ryzyka: null       # niska | srednia | wysoka
   wiedza: null                  # zadna | podstawowa | srednia | zaawansowana
-  ograniczenia: []              # instrumenty wykluczone przez użytkownika
-  doradca_zewnetrzny: null      # czy ktoś doradza i czy trzeba to uwzględniać
+  ograniczenia: []              # instruments excluded by the user
+  doradca_zewnetrzny: null      # whether someone advises and whether it needs to be accounted for
 
 stan_wdrozenia:
-  # Co użytkownik FAKTYCZNIE zrobił, nie co planował.
+  # What the user ACTUALLY did, not what they planned.
   ike_zalozone: null
   ike_wplacone_w_tym_roku: null
   ikze_zalozone: null

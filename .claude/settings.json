@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 .claude/hooks/block_raw_csv_read.py"
+            "command": "python .claude/hooks/block_raw_csv_read.py"
           }
         ]
       }

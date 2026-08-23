@@ -1,24 +1,24 @@
 #!/usr/bin/env python3
 """
-PreToolUse hook: blokuje bezpośredni odczyt data/raw/*.csv przez Claude'a.
+PreToolUse hook: blocks direct reads of data/raw/*.csv by Claude.
 
-Decyzja projektowa: agent ma czytać wyniki
+Design decision: the agent should read the results of
 `personal-finance-dashboard validate` / `personal-finance-dashboard
-analyze` (JSON na stdout + raporty w output/), nie surowe transakcje. To
-oszczędza tokeny (transformacja danych to zadanie deterministyczne, patrz
-checklist.md — Moduł 7) i zapobiega sytuacji, w której logika liczenia
-(transfery, okna czasowe) jest przepisywana ad hoc w kontekście rozmowy
-zamiast żyć w jednym miejscu (src/personal_finance_dashboard/data.py).
+analyze` (JSON on stdout + reports in output/), not raw transactions. This
+saves tokens (data transformation is a deterministic task, see checklist.md —
+Module 7) and prevents a situation where calculation logic (transfers, time
+windows) is rewritten ad hoc in the conversation context instead of living in
+one place (src/personal_finance_dashboard/data.py).
 
-Łapie:
-  - Read/View na ścieżce pasującej do data/raw/*.csv
-  - Bash z cat/head/tail/less/python(pandas.read_csv)/awk/sed na tej ścieżce
+Catches:
+  - Read/View on a path matching data/raw/*.csv
+  - Bash with cat/head/tail/less/python(pandas.read_csv)/awk/sed on that path
 
-Nie łapie:
-  - odczytu output/, config/, kodu źródłowego
-  - poleceń `uv run personal-finance-dashboard ...` (to jest dozwolona ścieżka)
+Does not catch:
+  - reads of output/, config/, source code
+  - `uv run personal-finance-dashboard ...` commands (this is the allowed path)
 
-Kod wyjścia 2 = blokada. Kod 0 = przepuść.
+Exit code 2 = block. Exit code 0 = pass through.
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ import sys
 
 BLOCKED_PATTERN = re.compile(r"data/raw/[^\s\"']*\.csv", re.IGNORECASE)
 
-# Polecenia, które w Bashu oznaczają "czytam plik", nie "wołam CLI".
+# Commands that in Bash mean "I am reading a file", not "I am calling the CLI".
 READ_LIKE_COMMANDS = re.compile(
     r"\b(cat|head|tail|less|more|awk|sed|python3?\s.*read_csv|pandas)\b"
 )
@@ -37,11 +37,11 @@ READ_LIKE_COMMANDS = re.compile(
 
 def _tool_input_text(payload: dict) -> str:
     tool_input = payload.get("tool_input", {})
-    # Read/View: pole "path" albo "file_path"
+    # Read/View: "path" or "file_path" field
     for key in ("path", "file_path"):
         if key in tool_input:
             return str(tool_input[key])
-    # Bash: pole "command"
+    # Bash: "command" field
     if "command" in tool_input:
         return str(tool_input["command"])
     return json.dumps(tool_input)
@@ -51,7 +51,7 @@ def main() -> int:
     try:
         payload = json.load(sys.stdin)
     except (json.JSONDecodeError, ValueError):
-        return 0  # nie blokuj na niezrozumiałym wejściu — fail open
+        return 0  # don't block on unintelligible input — fail open
 
     tool_name = payload.get("tool_name", "")
     text = _tool_input_text(payload)
@@ -62,16 +62,16 @@ def main() -> int:
     if tool_name == "Bash" and (
         "personal-finance-dashboard" in text or not READ_LIKE_COMMANDS.search(text)
     ):
-        # Dopuszczamy polecenia, które nie "czytają" pliku wprost, np.
-        # `ls data/raw/` albo `uv run personal-finance-dashboard validate --csv data/raw/x.csv`.
+        # Allow commands that don't "read" the file directly, e.g.
+        # `ls data/raw/` or `uv run personal-finance-dashboard validate --csv data/raw/x.csv`.
         return 0
 
     print(
-        "Zablokowano: bezpośredni dostęp do data/raw/*.csv.\n"
-        "Użyj `uv run personal-finance-dashboard validate` lub"
-        "`uv run personal-finance-dashboard analyze` - logika parsowania i okien czasowych "
-        "żyje w src/personal-finance-dashboard/data.py, "
-        "nie w kontekście rozmowy. Zobacz CLAUDE.md.",
+        "Blocked: direct access to data/raw/*.csv.\n"
+        "Use `uv run personal-finance-dashboard validate` or"
+        "`uv run personal-finance-dashboard analyze` - parsing and time-window logic "
+        "lives in src/personal-finance-dashboard/data.py, "
+        "not in the conversation context. See CLAUDE.md.",
         file=sys.stderr,
     )
     return 2

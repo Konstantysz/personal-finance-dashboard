@@ -1,12 +1,12 @@
 """
-CLI narzędzia. Jedyne miejsce, przez które ktokolwiek — agent czy człowiek —
-dotyka data/raw/*.csv. Każda podkomenda:
+CLI for the tool. The only place through which anyone — agent or human —
+touches data/raw/*.csv. Each subcommand:
 
-  1. pisze pełny raport (.md) i wykresy (.png) na dysk,
-  2. drukuje na stdout krótkie podsumowanie JSON.
+  1. writes a full report (.md) and charts (.png) to disk,
+  2. prints a short JSON summary to stdout.
 
-Agent czyta stdout, nie wczytuje z powrotem całego raportu do kontekstu.
-Zaimplementowane: `validate`, `analyze`. Reszta to stuby — patrz TODO.md.
+The agent reads stdout and does not load the entire report back into context.
+Implemented: `validate`, `analyze`. The rest are stubs — see TODO.md.
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ import typer
 from personal_finance_dashboard import data
 from personal_finance_dashboard.charts import plot_monthly_flow, plot_top_categories
 
-app = typer.Typer(help="Analiza finansów osobistych — CSV -> raport + JSON.")
+app = typer.Typer(help="Personal finance analysis — CSV -> report + JSON.")
 
 DEFAULT_CSV = Path("data/raw/wallet_export.csv")
 DEFAULT_PROFILE = Path("config/profile.yaml")
@@ -32,20 +32,20 @@ CHARTS_DIR = Path("output/charts")
 
 
 def _emit(summary: dict[str, Any]) -> None:
-    """Jedyny sposób zwracania wyniku na stdout: zwarty JSON, jedna linia."""
+    """The only way to return a result to stdout: compact JSON, one line."""
     typer.echo(json.dumps(summary, ensure_ascii=False, default=str))
 
 
 @app.command()
 def validate(
-    csv_path: Path = typer.Option(DEFAULT_CSV, "--csv", help="Ścieżka do eksportu CSV."),
+    csv_path: Path = typer.Option(DEFAULT_CSV, "--csv", help="Path to the CSV export."),
 ) -> None:
     """
-    Kontrola jakości danych: pokrycie, konta, transfery, anomalie.
-    Nie liczy budżetu. Odpowiednik /waliduj.
+    Data quality check: coverage, accounts, transfers, anomalies.
+    Does not calculate a budget. Equivalent of /waliduj.
     """
     if not csv_path.exists():
-        _emit({"ok": False, "error": f"Brak pliku {csv_path}"})
+        _emit({"ok": False, "error": f"Missing file {csv_path}"})
         raise typer.Exit(code=1)
 
     df = data.load(csv_path)
@@ -68,32 +68,32 @@ def validate(
     )
 
     report_lines = [
-        f"# Walidacja danych — {date.today().isoformat()}",
+        f"# Data validation — {date.today().isoformat()}",
         "",
-        f"Zakres: {df['date'].min().date()} → {df['date'].max().date()}, {len(df)} transakcji.",
+        f"Range: {df['date'].min().date()} → {df['date'].max().date()}, {len(df)} transactions.",
         "",
-        "## Konta",
+        "## Accounts",
         accounts.to_markdown(index=False),
         "",
-        "## Transfery",
+        "## Transfers",
         audit.summary(),
         "",
     ]
     if not audit.orphans.empty:
         report_lines += [
-            "### Sieroty (wymagają decyzji użytkownika)",
+            "### Orphans (require user decision)",
             audit.orphans.to_markdown(index=False),
             "",
         ]
     if not audit.malformed.empty:
-        report_lines += ["### Błędne pary", audit.malformed.to_markdown(index=False), ""]
+        report_lines += ["### Malformed pairs", audit.malformed.to_markdown(index=False), ""]
     if not duplicates.empty:
-        report_lines += ["## Możliwe duplikaty", duplicates.to_markdown(index=False), ""]
+        report_lines += ["## Possible duplicates", duplicates.to_markdown(index=False), ""]
     if not large.empty:
-        report_lines += ["## Transakcje > 20 000 zł", large.to_markdown(index=False), ""]
+        report_lines += ["## Transactions > 20,000 PLN", large.to_markdown(index=False), ""]
     if not sparse_months.empty:
         report_lines += [
-            "## Miesiące z podejrzanie małą liczbą transakcji",
+            "## Months with suspiciously low transaction counts",
             sparse_months.to_markdown(),
             "",
         ]
@@ -127,14 +127,14 @@ def analyze(
     params_path: Path = typer.Option(DEFAULT_PARAMS, "--params"),
 ) -> None:
     """
-    Pełna analiza okna ACTIVE: przepływ, kategorie, koszty stałe.
-    Odpowiednik /analiza.
+    Full ACTIVE window analysis: flow, categories, fixed costs.
+    Equivalent of /analiza.
     """
     if not csv_path.exists():
-        _emit({"ok": False, "error": f"Brak pliku {csv_path}"})
+        _emit({"ok": False, "error": f"Missing file {csv_path}"})
         raise typer.Exit(code=1)
     if not profile_path.exists():
-        _emit({"ok": False, "error": f"Brak {profile_path}. Uruchom /profil."})
+        _emit({"ok": False, "error": f"Missing {profile_path}. Run /profil."})
         raise typer.Exit(code=1)
 
     df = data.load(csv_path)
@@ -161,17 +161,17 @@ def analyze(
     params_check = data.check_parameters_freshness(params_path)
 
     report_lines = [
-        f"# Analiza — okno ACTIVE (od {profile['okresy']['regime_change_date']})",
+        f"# Analysis — ACTIVE window (from {profile['okresy']['regime_change_date']})",
         "",
-        f"Miesięcy w oknie: {len(flow)}.",
+        f"Months in window: {len(flow)}.",
         "",
-        "## Przepływ miesięczny",
+        "## Monthly flow",
         flow.round(0).to_markdown(),
         "",
-        "## Koszty stałe (kandydaci, do zatwierdzenia)",
-        fixed_costs.to_markdown(index=False) if not fixed_costs.empty else "Brak wykrytych.",
+        "## Fixed costs (candidates, for approval)",
+        fixed_costs.to_markdown(index=False) if not fixed_costs.empty else "None detected.",
         "",
-        "## Top kategorie",
+        "## Top categories",
         by_category.sort_values(ascending=False).head(15).round(0).to_markdown(),
         "",
     ]
@@ -202,10 +202,10 @@ def _not_implemented(name: str, doc_command: str) -> None:
     _emit(
         {
             "ok": False,
-            "error": f"`{name}` nie jest jeszcze zaimplementowane w CLI.",
+            "error": f"`{name}` is not yet implemented in the CLI.",
             "see": "TODO.md",
-            "workaround": f"Slash-komenda {doc_command} nadal opisuje docelowe zachowanie "
-            "i może być użyta jako specyfikacja przy implementacji.",
+            "workaround": f"The slash command {doc_command} still describes the target "
+            "behavior and can be used as a specification during implementation.",
         }
     )
     raise typer.Exit(code=2)
@@ -213,25 +213,25 @@ def _not_implemented(name: str, doc_command: str) -> None:
 
 @app.command()
 def monthly() -> None:
-    """Zamknięcie miesiąca. NIEZAIMPLEMENTOWANE — patrz TODO.md."""
+    """Month close. NOT IMPLEMENTED — see TODO.md."""
     _not_implemented("monthly", "/miesiac")
 
 
 @app.command()
 def category(name: str = typer.Argument(...)) -> None:
-    """Deep dive w kategorię. NIEZAIMPLEMENTOWANE — patrz TODO.md."""
+    """Deep dive into a category. NOT IMPLEMENTED — see TODO.md."""
     _not_implemented("category", "/kategoria")
 
 
 @app.command()
 def invest() -> None:
-    """Plan inwestycyjny. NIEZAIMPLEMENTOWANE — patrz TODO.md."""
+    """Investment plan. NOT IMPLEMENTED — see TODO.md."""
     _not_implemented("invest", "/inwestycje")
 
 
 @app.command()
 def goal(name: str = typer.Argument(...)) -> None:
-    """Symulacja celu. NIEZAIMPLEMENTOWANE — patrz TODO.md."""
+    """Goal simulation. NOT IMPLEMENTED — see TODO.md."""
     _not_implemented("goal", "/cel")
 
 

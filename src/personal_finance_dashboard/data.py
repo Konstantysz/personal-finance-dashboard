@@ -1,12 +1,12 @@
 """
-Jedyne źródło prawdy dla wczytywania i czyszczenia danych transakcyjnych.
+Single source of truth for loading and cleaning transaction data.
 
-`cli.py` importuje stąd i jest jedynym dozwolonym miejscem wywołującym te
-funkcje na surowym CSV. Agent (Claude Code) nie czyta data/raw/*.csv
-bezpośrednio — patrz CLAUDE.md i .claude/settings.json (hook blokujący).
-Nie duplikuj logiki transferów ani podziału okresów gdzie indziej — trzy
-błędy w poprzedniej (ręcznej) analizie wzięły się dokładnie z tego, że
-reguły były przepisywane ad hoc przy każdym pytaniu.
+`cli.py` imports from here and is the only allowed place that calls these
+functions on raw CSV. The agent (Claude Code) does not read data/raw/*.csv
+directly — see CLAUDE.md and .claude/settings.json (blocking hook).
+Do not duplicate transfer logic or period division anywhere else — three
+errors in the previous (manual) analysis came exactly from the fact that
+rules were being rewritten ad hoc for each question.
 """
 
 from __future__ import annotations
@@ -23,18 +23,18 @@ TYPE_EXPENSE = "Wydatek"
 
 
 # --------------------------------------------------------------------------
-# Wczytywanie
+# Loading
 # --------------------------------------------------------------------------
 
 
 def load(csv_path: str | Path) -> pd.DataFrame:
-    """Wczytuje eksport Wallet i normalizuje typy. Nie filtruje niczego."""
+    """Loads the Wallet export and normalizes types. Does not filter anything."""
     df = pd.read_csv(csv_path, sep=";", encoding="utf-8", dtype=str)
 
     required = {"account", "category", "amount", "type", "date", "transfer"}
     missing = required - set(df.columns)
     if missing:
-        raise ValueError(f"Brakuje kolumn w CSV: {sorted(missing)}")
+        raise ValueError(f"Missing columns in CSV: {sorted(missing)}")
 
     df["amount"] = pd.to_numeric(df["amount"].str.replace(",", ".", regex=False), errors="coerce")
     if "ref_currency_amount" in df.columns:
@@ -46,8 +46,8 @@ def load(csv_path: str | Path) -> pd.DataFrame:
         df["ref_amount"] = df["amount"]
 
     df["date"] = pd.to_datetime(df["date"], format="ISO8601", utc=True)
-    # Wallet zapisuje w UTC; konwersja na czas lokalny, bo cykle wypłatowe
-    # i granice miesięcy liczymy w czasie warszawskim.
+    # Wallet saves in UTC; convert to local time, because pay cycles
+    # and month boundaries are calculated in Warsaw time.
     df["date"] = df["date"].dt.tz_convert("Europe/Warsaw").dt.tz_localize(None)
 
     df["transfer"] = df["transfer"].astype(str).str.strip().str.lower() == "true"
@@ -62,13 +62,13 @@ def load(csv_path: str | Path) -> pd.DataFrame:
 
 
 # --------------------------------------------------------------------------
-# Transfery
+# Transfers
 # --------------------------------------------------------------------------
 
 
 @dataclass
 class TransferAudit:
-    """Wynik dopasowania par transferów. Sieroty ZAWSZE pokaż użytkownikowi."""
+    """Result of matching transfer pairs. Always show orphans to the user."""
 
     pairs: pd.DataFrame = field(default_factory=pd.DataFrame)
     orphans: pd.DataFrame = field(default_factory=pd.DataFrame)
@@ -76,18 +76,18 @@ class TransferAudit:
 
     def summary(self) -> str:
         return (
-            f"Pary transferów: {len(self.pairs)}. "
-            f"Sieroty: {len(self.orphans)}. "
-            f"Błędne pary (obie strony tego samego typu): {len(self.malformed)}."
+            f"Transfer pairs: {len(self.pairs)}. "
+            f"Orphans: {len(self.orphans)}. "
+            f"Malformed pairs (both sides of the same type): {len(self.malformed)}."
         )
 
 
 def audit_transfers(df: pd.DataFrame) -> TransferAudit:
     """
-    Dopasowuje transfery w pary po kluczu (date, amount).
+    Matches transfers into pairs by key (date, amount).
 
-    Poprawna para: dokładnie 2 rekordy, jeden Wydatek + jeden Przychód.
-    Wszystko inne wymaga decyzji użytkownika.
+    A correct pair: exactly 2 records, one Expense + one Income.
+    Anything else requires a user decision.
     """
     t = df[df["transfer"]].copy()
     if t.empty:
@@ -122,45 +122,45 @@ def audit_transfers(df: pd.DataFrame) -> TransferAudit:
 
 
 # --------------------------------------------------------------------------
-# Podstawowe filtry — używaj ICH, nie własnych warunków
+# Basic filters — use THESE, not your own conditions
 # --------------------------------------------------------------------------
 
 
 def income(df: pd.DataFrame) -> pd.DataFrame:
-    """Rzeczywisty przychód: transfery NIE są przychodem."""
+    """Actual income: transfers are NOT income."""
     return df[(df["type"] == TYPE_INCOME) & (~df["transfer"])]
 
 
 def expenses(df: pd.DataFrame) -> pd.DataFrame:
-    """Rzeczywisty wydatek: transfery NIE są wydatkiem."""
+    """Actual expenses: transfers are NOT expenses."""
     return df[(df["type"] == TYPE_EXPENSE) & (~df["transfer"])]
 
 
 def savings(df: pd.DataFrame, savings_accounts: list[str]) -> pd.DataFrame:
     """
-    Oszczędności = wyłącznie przychodząca strona transferu na konto
-    oznaczone w profilu jako oszczędnościowe.
+    Savings = only the incoming side of a transfer to an account
+    marked in the profile as savings.
 
-    Liczenie obu stron pary podwaja kwotę. Liczenie wszystkich transferów
-    wciąga w to przesunięcia PKO -> Revolut, które oszczędnościami nie są.
+    Counting both sides of the pair doubles the amount. Counting all transfers
+    drags in PKO -> Revolut moves, which are not savings.
     """
     if not savings_accounts:
         raise ValueError(
-            "Lista kont oszczędnościowych jest pusta. Uzupełnij config/profile.yaml "
-            "— nie zgaduj po nazwach kont."
+            "The list of savings accounts is empty. Fill in config/profile.yaml "
+            "— don't guess by account names."
         )
     return df[df["transfer"] & (df["type"] == TYPE_INCOME) & (df["account"].isin(savings_accounts))]
 
 
 # --------------------------------------------------------------------------
-# Podział okresów
+# Period division
 # --------------------------------------------------------------------------
 
 
 def load_profile(path: str | Path = "config/profile.yaml") -> dict[str, Any]:
     p = Path(path)
     if not p.exists():
-        raise FileNotFoundError(f"Brak {p}. Uruchom /profil zanim zaczniesz analizę.")
+        raise FileNotFoundError(f"Missing {p}. Run /profil before starting analysis.")
     with p.open(encoding="utf-8") as f:
         data: dict[str, Any] = yaml.safe_load(f)
     return data
@@ -168,10 +168,10 @@ def load_profile(path: str | Path = "config/profile.yaml") -> dict[str, Any]:
 
 def split_periods(df: pd.DataFrame, profile: dict[str, Any]) -> dict[str, pd.DataFrame]:
     """
-    Zwraca okna: archive / active / recent / all.
+    Returns windows: archive / active / recent / all.
 
-    ACTIVE to domyślne okno KAŻDEJ analizy budżetowej. ARCHIVE służy tylko do
-    sezonowości, inflacji koszyka i historii — nie do średnich wydatków.
+    ACTIVE is the default window for EVERY budget analysis. ARCHIVE serves only
+    for seasonality, basket inflation, and history — not for average expenses.
     """
     change = pd.Timestamp(profile["okresy"]["regime_change_date"])
 
@@ -191,8 +191,8 @@ def detect_regime_change(
     df: pd.DataFrame, keywords: list[str] | None = None
 ) -> tuple[pd.Period | None, pd.Series]:
     """
-    Szuka skokowej zmiany poziomu w kategoriach mieszkaniowych.
-    Wynik to PROPOZYCJA do potwierdzenia przez użytkownika, nie ustalenie.
+    Looks for a step change in the level of housing-related categories.
+    The result is a PROPOSAL for user confirmation, not a determination.
     """
     keywords = keywords or [
         "czynsz",
@@ -211,14 +211,14 @@ def detect_regime_change(
     if housing.empty:
         return None, pd.Series(dtype=float)
 
-    # Uzupełnij brakujące miesiące zerami — inaczej "kategoria pojawiła się
-    # od zera" jest nieodróżnialne od "kategoria istniała cały czas".
+    # Fill missing months with zeros — otherwise "category appeared from zero"
+    # is indistinguishable from "category existed all along".
     monthly = housing.groupby("month")["amount"].sum()
     full_idx = pd.period_range(df["month"].min(), df["month"].max(), freq="M")
     monthly = monthly.reindex(full_idx, fill_value=0.0)
 
-    # Przypadek 1: kategoria po prostu pojawia się i już nie znika.
-    # Wtedy pierwszy niezerowy miesiąc JEST datą przełomu.
+    # Case 1: the category simply appears and doesn't disappear.
+    # Then the first non-zero month IS the regime change date.
     nonzero = monthly[monthly > 0]
     if not nonzero.empty:
         first = nonzero.index[0]
@@ -227,8 +227,8 @@ def detect_regime_change(
         if len(before) >= 3 and (before == 0).all() and (after > 0).mean() >= 0.8:
             return first, monthly
 
-    # Przypadek 2: skok poziomu. Szukaj podziału maksymalizującego różnicę
-    # median, wymagając >=3 miesiące po obu stronach.
+    # Case 2: level jump. Look for a split that maximizes the difference in
+    # medians, requiring >=3 months on both sides.
     best: pd.Period | None = None
     best_ratio = 0.0
     for i in range(3, len(monthly) - 2):
@@ -244,7 +244,7 @@ def detect_regime_change(
 
 
 # --------------------------------------------------------------------------
-# Koszty stałe
+# Fixed costs
 # --------------------------------------------------------------------------
 
 
@@ -252,11 +252,11 @@ def detect_fixed_costs(
     df: pd.DataFrame, min_months: int = 3, tolerance: float = 0.20
 ) -> pd.DataFrame:
     """
-    Kandydaci na koszty stałe: ta sama (kategoria, payee) w >= min_months
-    kolejnych miesiącach, kwota w granicach +/- tolerance wokół mediany.
+    Fixed cost candidates: same (category, payee) in >= min_months
+    consecutive months, amount within +/- tolerance around the median.
 
-    To HEURYSTYKA. Wynik pokaż użytkownikowi do zatwierdzenia — nie traktuj
-    jako ustalonego faktu.
+    This is a HEURISTIC. Show the result to the user for approval — do not
+    treat it as an established fact.
     """
     exp = expenses(df).copy()
     exp["key"] = exp["category"] + " | " + exp.get("payee", "")
@@ -293,14 +293,14 @@ def detect_fixed_costs(
 
 
 # --------------------------------------------------------------------------
-# Parametry rynkowe — świeżość
+# Market parameters — freshness
 # --------------------------------------------------------------------------
 
 
 def check_parameters_freshness(
     path: str | Path = "config/parameters.yaml", max_age_days: int = 60
 ) -> dict[str, Any]:
-    """Zwraca, czy config/parameters.yaml jest starszy niż max_age_days."""
+    """Returns whether config/parameters.yaml is older than max_age_days."""
     import datetime as _dt
 
     p = Path(path)
@@ -320,12 +320,12 @@ def check_parameters_freshness(
 
 
 # --------------------------------------------------------------------------
-# Zestawienie miesięczne
+# Monthly summary
 # --------------------------------------------------------------------------
 
 
 def monthly_flow(df: pd.DataFrame, savings_accounts: list[str]) -> pd.DataFrame:
-    """Przychód / wydatki / oszczędności / bilans, miesiąc po miesiącu."""
+    """Income / expenses / savings / balance, month by month."""
     inc = income(df).groupby("month")["amount"].sum()
     exp = expenses(df).groupby("month")["amount"].sum()
     sav = savings(df, savings_accounts).groupby("month")["amount"].sum()
@@ -339,10 +339,10 @@ def monthly_flow(df: pd.DataFrame, savings_accounts: list[str]) -> pd.DataFrame:
 
 def rolling_view(flow: pd.DataFrame, window: int = 3) -> pd.DataFrame:
     """
-    Rolling + ostatni miesiąc osobno.
+    Rolling + last month separately.
 
-    Powód: średnia z całego okresu potrafi pokazywać deficyt w momencie, gdy
-    ostatni miesiąc jest już dodatni. Zawsze raportuj obie liczby.
+    Reason: the average over the whole period can show a deficit at a moment
+    when the last month is already positive. Always report both numbers.
     """
     r = flow[["przychod", "wydatki", "oszczednosci", "bilans"]].rolling(window).mean()
     r.columns = [f"{c}_r{window}m" for c in r.columns]

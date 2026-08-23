@@ -1,103 +1,102 @@
 # personal-finance-dashboard
 
-Analiza finansów osobistych: CLI (działa samodzielnie) + agent Claude Code
-(korzysta z tego samego CLI, nie z surowych danych bezpośrednio).
+Personal finance analysis: CLI + Claude Code agent.
 
-## Instalacja
+## Installation
 
 ```bash
 uv sync --locked
-cp config/profile.example.yaml config/profile.yaml   # wypełnij ręcznie albo przez agenta
-# wrzuć eksport Wallet do data/raw/wallet_export.csv
+cp config/profile.example.yaml config/profile.yaml   # fill in manually or via the agent
+# put the Wallet export in data/raw/wallet_export.csv
 ```
 
-## Użycie bez agenta
+## Usage without the agent
 
 ```bash
-uv run personal-finance-dashboard validate                # kontrola jakości danych
-uv run personal-finance-dashboard analyze                 # pełna analiza okna ACTIVE
+uv run personal-finance-dashboard validate                # data quality check
+uv run personal-finance-dashboard analyze                 # full ACTIVE window analysis
 ```
 
-Obie komendy piszą raport do `output/reports/` i (dla `analyze`) wykresy do
-`output/charts/`, oraz drukują na stdout jedną linię JSON z kluczowymi
-liczbami — wygodne do dalszego przetwarzania (`| python3 -m json.tool`,
+Both commands write a report to `output/reports/` and (for `analyze`) charts to
+`output/charts/`, and print one line of JSON to stdout with key
+numbers — convenient for further processing (`| python3 -m json.tool`,
 `| jq`).
 
-`monthly`, `category`, `invest`, `goal` są **zdefiniowane w CLI, ale
-niezaimplementowane** — patrz `TODO.md` i specyfikacje w `.claude/commands/`.
+`monthly`, `category`, `invest`, `goal` are **defined in the CLI but
+not implemented** — see `TODO.md` and the specs in `.claude/commands/`.
 
-## Użycie z Claude Code
+## Usage with Claude Code
 
 ```bash
 claude
 ```
 
-`CLAUDE.md` ładuje się automatycznie. Komendy slash w `.claude/commands/`:
+`CLAUDE.md` loads automatically. Slash commands in `.claude/commands/`:
 
-| komenda | woła CLI | status |
+| command | calls CLI | status |
 |---|---|---|
-| `/profil` | — (dialog + zapis YAML) | działa |
-| `/waliduj` | `personal-finance-dashboard validate` | działa |
-| `/analiza` | `personal-finance-dashboard analyze` | działa |
-| `/miesiac` | `personal-finance-dashboard monthly` | spec, CLI to stub |
-| `/kategoria <nazwa>` | `personal-finance-dashboard category` | spec, CLI to stub |
-| `/inwestycje` | `personal-finance-dashboard invest` | spec, CLI to stub |
-| `/podatki` | — | spec, brak decyzji o miejscu w CLI |
-| `/cel <nazwa>` | `personal-finance-dashboard goal` | spec, CLI to stub |
+| `/profil` | — (dialog + YAML save) | works |
+| `/waliduj` | `personal-finance-dashboard validate` | works |
+| `/analiza` | `personal-finance-dashboard analyze` | works |
+| `/miesiac` | `personal-finance-dashboard monthly` | spec, CLI is a stub |
+| `/kategoria <nazwa>` | `personal-finance-dashboard category` | spec, CLI is a stub |
+| `/inwestycje` | `personal-finance-dashboard invest` | spec, CLI is a stub |
+| `/podatki` | — | spec, no decision yet on CLI placement |
+| `/cel <nazwa>` | `personal-finance-dashboard goal` | spec, CLI is a stub |
 
-Bezpośredni odczyt `data/raw/*.csv` przez agenta jest zablokowany hookiem
-(`.claude/settings.json` → `.claude/hooks/block_raw_csv_read.py`) — nie
-tylko zalecany przeciw, ale wymuszony. Cel: transformacja danych to zadanie
-deterministyczne i powinno kosztować cykl CPU, nie tokeny.
+Direct reads of `data/raw/*.csv` by the agent are blocked by a hook
+(`.claude/settings.json` → `.claude/hooks/block_raw_csv_read.py`) — not
+just recommended against, but enforced. Goal: data transformation is a
+deterministic task and should cost CPU cycles, not tokens.
 
-## Rozwój
+## Development
 
 ```bash
-uv run pytest -q          # testy
+uv run pytest -q          # tests
 uv run mypy src           # type check (--strict)
 uv run ruff check --fix . && uv run ruff format .
 uv run pre-commit run --all-files
 ```
 
-## Struktura
+## Structure
 
 ```
-CLAUDE.md / AGENTS.md      instrukcja agenta (AGENTS.md = ręczna kopia)
+CLAUDE.md / AGENTS.md      agent instructions (AGENTS.md = manual copy)
 .claude/
-  commands/                specyfikacje slash-komend
+  commands/                slash command specs
   hooks/block_raw_csv_read.py
-  settings.json            rejestracja hooka
-src/personal_finance_dashboard/
-  data.py                  parsowanie, transfery, okna czasowe — jedno źródło prawdy
-  charts.py                gotowe funkcje wykresów
-  cli.py                   Typer, jedyny punkt wejścia do data.py
+  settings.json            hook registration
+src/personal-finance-dashboard/
+  data.py                  parsing, transfers, time windows — single source of truth
+  charts.py                ready-made chart functions
+  cli.py                   Typer, the only entry point to data.py
 config/
-  parameters.yaml          stawki rynkowe/podatkowe, z datą weryfikacji
-  profile.yaml              profil użytkownika (gitignored)
-  category_mapping.yaml    mapowanie zmienionych kategorii
-data/raw/                  eksporty CSV (gitignored)
-output/{reports,charts}/   wyniki (gitignored)
-tests/unit/test_data.py    testy regresyjne na historyczne błędy interpretacji
-TODO.md                    roadmapa (repo bez remote — surogat GitHub Issues)
+  parameters.yaml          market/tax rates, with verification date
+  profile.yaml             user profile (gitignored)
+  category_mapping.yaml    mapping of renamed categories
+data/raw/                  CSV exports (gitignored)
+output/{reports,charts}/   results (gitignored)
+tests/unit/test_data.py    regression tests for historical interpretation errors
+TODO.md                    roadmap (repo without a remote — surrogate for GitHub Issues)
 ```
 
-## Trzy rzeczy, o których trzeba pamiętać
+## Three things to remember
 
-**1. Dane obejmują dwa różne życia.** Domyślne okno analizy to ACTIVE (od
-`config/profile.yaml` → `okresy.regime_change_date`). Historia sprzed tej
-daty służy do sezonowości i długoterminowych trendów, nie do średnich
-wydatków bieżących.
+**1. The data spans two different lives.** The default analysis window is ACTIVE (from
+`config/profile.yaml` → `okresy.regime_change_date`). History before that
+date is used for seasonality and long-term trends, not for current average
+spending.
 
-**2. Transfery nie są przychodem ani wydatkiem.** Występują parami.
-Oszczędnościami są wyłącznie wpłaty na konta wskazane w profilu jako
-oszczędnościowe — logika w `src/personal_finance_dashboard/data.py`, przetestowana w
-`tests/unit/test_data.py` właśnie pod kątem historycznych błędów
-interpretacji tych danych.
+**2. Transfers are neither income nor expenses.** They occur in pairs.
+Only deposits to accounts marked in the profile as savings are treated as
+savings — logic in `src/personal-finance-dashboard/data.py`, tested in
+`tests/unit/test_data.py` specifically for historical errors in
+interpreting this data.
 
-**3. `config/parameters.yaml` się starzeje.** Oprocentowanie obligacji
-zmienia się co miesiąc. `personal-finance-dashboard analyze` sprawdza wiek pliku i zwraca
-`params_stale` w JSON — nie ignoruj tego przy pytaniach inwestycyjnych.
+**3. `config/parameters.yaml` goes stale.** Bond interest rates change
+every month. `personal-finance-dashboard analyze` checks the file age and returns
+`params_stale` in the JSON — don't ignore this for investment questions.
 
-## Zastrzeżenie
+## Disclaimer
 
-Narzędzie analityczne, nie doradztwo inwestycyjne ani podatkowe.
+Analytical tool, not investment or tax advice.

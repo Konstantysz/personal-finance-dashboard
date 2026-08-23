@@ -1,15 +1,15 @@
-# Mapowanie kategorii, które zmieniły nazwę przez 4 lata eksportu.
-# Bez tego porównania rok-do-roku są bezwartościowe.
-# Agent proponuje wpisy podczas /waliduj; zatwierdzasz je ręcznie.
+# Mapping of categories that changed names over 4 years of exports.
+# Without this, year-over-year comparisons are worthless.
+# The agent proposes entries during /waliduj; you approve them manually.
 #
 # format:
-#   kanoniczna_nazwa:
-#     - stara_nazwa_1
-#     - stara_nazwa_2
+#   canonical_name:
+#     - old_name_1
+#     - old_name_2
 
 mapowanie: {}
 
-# Kategorie celowo wykluczone z analizy wydatków konsumpcyjnych
-# (np. techniczne kategorie transferowe).
+# Categories deliberately excluded from consumer spending analysis
+# (e.g., technical transfer categories).
 wykluczone:
   - "Przelew, wypłata"

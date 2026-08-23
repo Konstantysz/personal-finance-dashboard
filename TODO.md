@@ -1,87 +1,87 @@
-# TODO / roadmapa
+# TODO / roadmap
 
-Repo nie ma zdalnego remote w tej chwili, więc to jest lista zadań zamiast
-GitHub Issues. Po wypchnięciu na GitHub warto przenieść każdą sekcję do
-osobnego issue.
+The repo has no remote right now, so this is a task list instead of GitHub
+Issues. Once pushed to GitHub, it's worth moving each section into a separate
+issue.
 
-Zasada dla każdego zadania poniżej: implementacja idzie za wzorcem
-`validate`/`analyze` w `src/personal_finance_dashboard/cli.py` — funkcja w `data.py` (czysta,
-testowalna), cienki wrapper w `cli.py` (JSON na stdout + plik na dysk),
-test w `tests/unit/test_data.py`. Nie omijaj CLI pisząc logikę w komendzie
-`.claude/commands/*.md` — to dokładnie ten koszt tokenów, którego CLI ma
-unikać.
+Rule for each task below: implementation follows the `validate`/`analyze`
+pattern in `src/personal_finance_dashboard/cli.py` — a function in `data.py` (pure,
+testable), a thin wrapper in `cli.py` (JSON to stdout + file on disk), a test
+in `tests/unit/test_data.py`. Don't bypass the CLI by writing logic in a
+`.claude/commands/*.md` command — that's exactly the token cost the CLI is
+meant to avoid.
 
-## Znane niedoróbki (bare minimum tej sesji)
+## Known shortcomings (bare minimum for this session)
 
-- [ ] `stopa_oszczedzania` w raporcie `analyze` jest zaokrąglana do 0 przez
-      `.round(0)` na całej tabeli (to ułamek 0-1, nie PLN). Formatować
-      osobno jako procent.
-- [ ] Hook `post_gen_project.py` szablonu Copier (git init / uv sync /
-      pre-commit install / AGENTS.md) nie odpalił się automatycznie mimo
-      `--trust` w środowisku, w którym powstało to repo — zrobione ręcznie.
-      Sprawdź na docelowej maszynie, czy to był tylko quirk sandboksa.
-- [ ] `copier.yml` w szablonie dołącza `GEMINI.md` zawsze przy
-      `use_ai_agents=true`, niezależnie od wyboru w `ai_agents` — usunięty
-      ręcznie. Warto zgłosić w `Konstantysz/python-repository-template`.
-- [ ] `AGENTS.md` to ręczna kopia `CLAUDE.md` — zsynchronizuj po każdej
-      zmianie tego drugiego (albo zrób z tego pre-commit hook).
+- [ ] `stopa_oszczedzania` in the `analyze` report is rounded to 0 by
+      `.round(0)` on the whole table (it's a 0-1 fraction, not PLN). Format
+      it separately as a percentage.
+- [ ] The `post_gen_project.py` hook of the Copier template (git init / uv sync /
+      pre-commit install / AGENTS.md) didn't run automatically despite
+      `--trust` in the environment where this repo was created — done manually.
+      Check on the target machine whether it was just a sandbox quirk.
+- [ ] `copier.yml` in the template always includes `GEMINI.md` when
+      `use_ai_agents=true`, regardless of the choice in `ai_agents` — removed
+      manually. Worth reporting in `Konstantysz/python-repository-template`.
+- [ ] `AGENTS.md` is a manual copy of `CLAUDE.md` — sync after each change
+      to the latter (or make it a pre-commit hook).
 
-**Naprawione po weryfikacji "świeży clone od zera" (warte odnotowania, bo
-poprzednia sesja tego nie złapała — testy end-to-end szły na dużym,
-13-miesięcznym syntetycznym CSV, a nie na minimalnym przypadku):**
+**Fixed after "fresh clone from scratch" verification (worth noting, because
+the previous session didn't catch this — end-to-end tests ran on a large,
+13-month synthetic CSV, not on a minimal case):**
 
-- ~~`config/profile.example.yaml` nie trafił do archiwum repo~~ — plik
-  istniał lokalnie podczas tworzenia, ale nigdy nie został skopiowany do
-  `personal_finance_dashboard/config/`, więc zniknął przy pakowaniu. Naprawione.
-- ~~`detect_fixed_costs` rzucał `KeyError` przy pustym wyniku~~ —
-  `pd.DataFrame([])` z pustej listy nie ma kolumny `mediana_miesieczna`,
-  `sort_values` na niej wybuchał. Występowało przy każdym CSV krótszym niż
-  3 miesiące (dokładnie przypadek "dopiero zacząłem używać tego repo").
-  Naprawione + dodany test regresyjny
+- ~~`config/profile.example.yaml` didn't make it into the repo archive~~ — the file
+  existed locally during creation, but was never copied to
+  `personal_finance_dashboard/config/`, so it disappeared during packaging. Fixed.
+- ~~`detect_fixed_costs` threw `KeyError` on empty result~~ —
+  `pd.DataFrame([])` from an empty list has no `mediana_miesieczna` column,
+  `sort_values` on it exploded. Occurred for every CSV shorter than
+  3 months (exactly the "I just started using this repo" case).
+  Fixed + added regression test
   (`test_detect_fixed_costs_empty_result_does_not_crash`).
 
-**Wniosek na przyszłość:** przy kolejnych komendach (`monthly`, `category`,
-`invest`, `goal`) testuj end-to-end zarówno na pełnym datasecie, jak i na
-minimalnym (1 miesiąc, zero wydatków, zero kategorii) — edge case'y przy
-starcie z pustym/małym repo są dokładnie tym, co realny użytkownik robi
-najpierw.
+**Takeaway for the future:** for the next commands (`monthly`, `category`,
+`invest`, `goal`), test end-to-end both on the full dataset and on a minimal
+one (1 month, zero expenses, zero categories) — edge cases when starting with
+an empty/small repo are exactly what a real user does first.
 
-## `personal-finance-dashboard monthly` — zamknięcie miesiąca
+## `personal-finance-dashboard monthly` — month close
 
-Spec: `.claude/commands/miesiac.md`. Porównanie ostatniego pełnego miesiąca
-z poprzednim, rolling 3M, tym samym miesiącem rok wcześniej (z zastrzeżeniem
-o granicy ACTIVE/ARCHIVE). Przypomnienie o deadline IKZE w listopadzie/grudniu.
+Spec: `.claude/commands/miesiac.md`. Comparison of the last full month with the
+previous one, rolling 3M, same month a year earlier (with a caveat about the
+ACTIVE/ARCHIVE boundary). Reminder about the IKZE deadline in November/December.
 
-## `personal-finance-dashboard category <name>` — deep dive w kategorię
+## `personal-finance-dashboard category <name>` — deep dive into a category
 
-Spec: `.claude/commands/kategoria.md`. Rozkład kwot, top kontrahenci, trend
-rolling 3M, kontekst z ARCHIVE z zastrzeżeniem o zmianie stylu życia.
+Spec: `.claude/commands/kategoria.md`. Amount distribution, top counterparties,
+rolling 3M trend, context from ARCHIVE with a caveat about lifestyle change.
 
-## `personal-finance-dashboard invest` — plan inwestycyjny
+## `personal-finance-dashboard invest` — investment plan
 
-Spec: `.claude/commands/inwestycje.md`. Wymaga wcześniej: `check_parameters_freshness`
-(już jest w `data.py`) + realny bilans z `analyze`. Dwa scenariusze zawsze
-(ostrożny/bazowy), nigdy jedna liczba.
+Spec: `.claude/commands/inwestycje.md`. Requires beforehand:
+`check_parameters_freshness` (already in `data.py`) + an actual balance from
+`analyze`. Always two scenarios (conservative/base), never one number.
 
-## `personal-finance-dashboard podatki` (albo osobna flaga `invest --tax`) — IKE/IKZE
+## `personal-finance-dashboard podatki` (or a separate `invest --tax` flag) — IKE/IKZE
 
-Spec: `.claude/commands/podatki.md`. Osobna komenda czy flaga do `invest` —
-do decyzji przy implementacji, w tej sesji nazwa robocza nie została ustalona.
+Spec: `.claude/commands/podatki.md`. Separate command or a flag to `invest` —
+to be decided at implementation; the working name was not settled in this
+session.
 
-## `personal-finance-dashboard goal <name>` — symulacja celu
+## `personal-finance-dashboard goal <name>` — goal simulation
 
-Spec: `.claude/commands/cel.md`. Trzy scenariusze (ostrożny/bazowy/zdarzenie
-losowe), sezonowość z ARCHIVE uwzględniona w rocznej projekcji.
+Spec: `.claude/commands/cel.md`. Three scenarios (conservative/base/random
+event), seasonality from ARCHIVE included in the annual projection.
 
-## Do rozważenia, nie zaplanowane
+## To consider, not planned
 
-- [ ] `.claude/rules/` ze scope `paths:` — pominięte w tej sesji, bo repo
-      jest jednym małym pakietem bez podfolderów wymagających różnych
-      reguł. Rozważ, jeśli `src/personal_finance_dashboard/` urośnie w kilka modułów o różnych
-      konwencjach.
-- [ ] Hook blokujący (`block_raw_csv_read.py`) łapie tylko `Read`/`View`/
-      `Bash`. Jeśli dojdzie narzędzie do edycji plików, sprawdź, czy też
-      powinno być objęte matcherem.
-- [ ] CI (`.github/workflows/ci.yml`) nie ma jeszcze kroku na testy hooka
-      (`.claude/hooks/block_raw_csv_read.py`) — obecnie testowany tylko
-      ręcznie przy tworzeniu.
+- [ ] `.claude/rules/` with `paths:` scope — skipped this session, because the repo
+      is one small package without subfolders requiring different rules.
+      Consider it if `src/personal_finance_dashboard/` grows into several modules with
+      different conventions.
+- [ ] The blocking hook (`block_raw_csv_read.py`) catches only `Read`/`View`/
+      `Bash`. If a file-editing tool is added, check whether it should also be
+      covered by the matcher.
+- [ ] CI (`.github/workflows/ci.yml`) doesn't yet have a step for hook tests
+      (`.claude/hooks/block_raw_csv_read.py`) — currently tested only manually
+      at creation.

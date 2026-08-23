@@ -1,4 +1,4 @@
-"""Wykresy. Deterministyczne, gotowe funkcje — bez ad hoc plotowania w CLI."""
+"""Charts. Deterministic, ready-made functions — no ad hoc plotting in the CLI."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ import pandas as pd
 def plot_monthly_flow(
     flow: pd.DataFrame, out_path: str | Path, regime_change: pd.Timestamp | None = None
 ) -> Path:
-    """Słupki przychód/wydatki/oszczędności + linia bilansu, miesiąc po miesiącu."""
+    """Bars for income/expenses/savings + balance line, month by month."""
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -23,16 +23,16 @@ def plot_monthly_flow(
     width = 0.25
     positions = range(len(x))
 
-    ax.bar([p - width for p in positions], flow["przychod"], width, label="Przychód")
-    ax.bar(list(positions), flow["wydatki"], width, label="Wydatki")
-    ax.bar([p + width for p in positions], flow["oszczednosci"], width, label="Oszczędności")
-    ax.plot(list(positions), flow["bilans"], color="black", marker="o", label="Bilans")
+    ax.bar([p - width for p in positions], flow["przychod"], width, label="Income")
+    ax.bar(list(positions), flow["wydatki"], width, label="Expenses")
+    ax.bar([p + width for p in positions], flow["oszczednosci"], width, label="Savings")
+    ax.plot(list(positions), flow["bilans"], color="black", marker="o", label="Balance")
     ax.axhline(0, color="grey", linewidth=0.8)
 
     ax.set_xticks(list(positions))
     ax.set_xticklabels(x, rotation=45, ha="right")
     ax.set_ylabel("PLN")
-    ax.set_title("Przepływ miesięczny")
+    ax.set_title("Monthly flow")
     ax.legend()
     fig.tight_layout()
     fig.savefig(out_path, dpi=150)
@@ -41,7 +41,7 @@ def plot_monthly_flow(
 
 
 def plot_top_categories(by_category: pd.Series, out_path: str | Path, top_n: int = 15) -> Path:
-    """Poziomy bar top N kategorii wg sumy wydatków."""
+    """Horizontal bar of top N categories by total expenses."""
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -50,7 +50,7 @@ def plot_top_categories(by_category: pd.Series, out_path: str | Path, top_n: int
     fig, ax = plt.subplots(figsize=(9, max(4, 0.35 * len(top))))
     ax.barh(top.index.astype(str), list(top.to_numpy()))
     ax.set_xlabel("PLN")
-    ax.set_title(f"Top {top_n} kategorii wydatków")
+    ax.set_title(f"Top {top_n} expense categories")
     fig.tight_layout()
     fig.savefig(out_path, dpi=150)
     plt.close(fig)

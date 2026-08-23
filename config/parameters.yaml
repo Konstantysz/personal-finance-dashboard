@@ -1,74 +1,74 @@
-# Parametry rynkowe i podatkowe.
-# Zweryfikuj przed każdą analizą inwestycyjną. Źródła w komentarzach.
-# Agent: jeżeli last_verified starsze niż 60 dni — ostrzeż użytkownika.
+# Market and tax parameters.
+# Verify before each investment analysis. Sources in comments.
+# Agent: if last_verified is older than 60 days — warn the user.
 
 last_verified: 2026-08-22
 
-# --- Konta emerytalne -------------------------------------------------------
-# Źródło: obwieszczenia MRPiPS, Monitor Polski; gov.pl/web/rodzina
-# Limit roczny NIE przechodzi na kolejny rok. Deadline wpłaty: 31 grudnia.
+# --- Retirement accounts ------------------------------------------------------
+# Source: MRPiPS announcements, Monitor Polski; gov.pl/web/rodzina
+# The annual limit does NOT roll over to the next year. Contribution deadline: December 31.
 konta_emerytalne:
   rok: 2026
   ike:
-    limit: 28260.00          # 3 × prognozowane wynagrodzenie 9420 zł
+    limit: 28260.00          # 3 × projected salary of 9,420 PLN
     limit_poprzedni_rok: 26019.00
-    korzysc: "brak podatku Belki przy wypłacie po 60 r.ż."
+    korzysc: "no Belka tax on withdrawal after age 60"
     ulga_pit: false
   ikze:
-    limit_etat: 11304.00     # 1,2 × 9420 zł
-    limit_jdg: 16956.00      # 1,8 × 9420 zł
+    limit_etat: 11304.00     # 1.2 × 9,420 PLN
+    limit_jdg: 16956.00      # 1.8 × 9,420 PLN
     limit_etat_poprzedni_rok: 10407.60
-    korzysc: "odliczenie od podstawy PIT w roku wpłaty; 10% ryczałtu przy wypłacie po 65 r.ż."
+    korzysc: "PIT base deduction in the contribution year; 10% flat tax on withdrawal after age 65"
     ulga_pit: true
-  # Suma dla etatowca korzystającego z obu: 39 564 zł
+  # Total for an employee using both: 39,564 PLN
 
-# --- Podatki ----------------------------------------------------------------
+# --- Taxes --------------------------------------------------------------------
 podatki:
   belka: 0.19
   pit_prog_1: 0.12
   pit_prog_2: 0.32
   pit_prog_2_od: 120000.00
 
-# --- Obligacje detaliczne ---------------------------------------------------
-# Źródło: obligacjeskarbowe.pl — emisja SIERPIEŃ 2026.
-# UWAGA: oprocentowanie zmienia się co miesiąc. Zweryfikuj przed zakupem.
-# UWAGA: odsetki podlegają podatkowi Belki 19% POZA IKE/IKZE.
+# --- Retail bonds -------------------------------------------------------------
+# Source: obligacjeskarbowe.pl — AUGUST 2026 issuance.
+# NOTE: interest rates change every month. Verify before purchasing.
+# NOTE: interest is subject to 19% Belka tax OUTSIDE IKE/IKZE.
 obligacje:
   emisja: 2026-08
-  ots:                        # 3-miesięczne, stałe
+  ots:                        # 3-month, fixed
     oprocentowanie: 0.0200
-  ror:                        # roczne, stopa NBP + marża, odsetki miesięcznie
+  ror:                        # 1-year, NBP rate + margin, monthly interest
     pierwszy_okres: 0.0400
     marza: 0.0000
     indeksacja: stopa_nbp
-  dor:                        # 2-letnie
+  dor:                        # 2-year
     pierwszy_okres: 0.0415
     marza: 0.0015
     indeksacja: stopa_nbp
-  tos:                        # 3-letnie, stałe, kapitalizacja
+  tos:                        # 3-year, fixed, capitalization
     oprocentowanie: 0.0440
-  coi:                        # 4-letnie, inflacja + marża, odsetki co roku
+  coi:                        # 4-year, inflation + margin, annual interest
     pierwszy_okres: 0.0475
     marza: 0.0150
     indeksacja: cpi
     okres_lat: 4
-  edo:                        # 10-letnie, inflacja + marża, kapitalizacja
+  edo:                        # 10-year, inflation + margin, capitalization
     pierwszy_okres: 0.0535
     marza: 0.0200
     indeksacja: cpi
     okres_lat: 10
-  # Gwarancja: przy deflacji oprocentowanie nie spada poniżej marży.
+  # Guarantee: under deflation, the rate does not fall below the margin.
 
-# --- Otoczenie makro --------------------------------------------------------
+# --- Macro environment --------------------------------------------------------
 makro:
-  stopa_referencyjna_nbp: 0.0375     # od 2026-03-05
-  cpi_rr: 0.030                      # lipiec 2026, szybki szacunek GUS
-  cpi_rr_poprzedni: 0.025            # czerwiec 2026, finalnie
-  konto_oszczednosciowe_pko: 0.0100  # oprocentowanie użytkownika, wszystkie progi
-  konto_oszczednosciowe_rynek_top: 0.0600  # najlepsze oferty rynkowe, zwykle promocyjne
+  stopa_referencyjna_nbp: 0.0375     # since 2026-03-05
+  cpi_rr: 0.030                      # July 2026, GUS flash estimate
+  cpi_rr_poprzedni: 0.025            # June 2026, final
+  konto_oszczednosciowe_pko: 0.0100  # user's rate, all tiers
+  konto_oszczednosciowe_rynek_top: 0.0600  # best market offers, usually promotional
 
-# --- Założenia do symulacji -------------------------------------------------
-# Podawaj ZAWSZE co najmniej dwa scenariusze. To nie są prognozy.
+# --- Simulation assumptions ----------------------------------------------------
+# ALWAYS provide at least two scenarios. These are not forecasts.
 symulacje:
   scenariusz_ostrozny:
     cpi: 0.025
@@ -80,8 +80,8 @@ symulacje:
     obligacje_edo: 0.050
   horyzonty_lat: [1, 3, 5, 10, 20, 35]
 
-# --- Notatka dla agenta -----------------------------------------------------
-# Oprocentowanie obligacji spadło znacząco względem 2025 (EDO było ~8%, teraz
-# 5,35% w pierwszym okresie). Jeżeli użytkownik odwołuje się do starszego planu
-# opartego na 8% — zwróć na to uwagę, bo zmienia to rachunek opłacalności
-# obligacje vs konto oszczędnościowe vs część akcyjna.
+# --- Note for the agent -------------------------------------------------------
+# Bond interest rates have dropped significantly compared to 2025 (EDO was ~8%,
+# now 5.35% in the first period). If the user refers to an older plan based on
+# 8% — point this out, because it changes the cost-benefit calculation of
+# bonds vs savings account vs equity portion.
