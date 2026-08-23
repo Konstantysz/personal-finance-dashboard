@@ -1,0 +1,16 @@
+_src_path: gh:Konstantysz/python-repository-template
+_commit: 81aecd6
+repo_name: personal-finance-dashboard
+package_name: personal_finance_dashboard
+python_version: "3.12"
+package_manager: uv
+license: proprietary
+use_cli: true
+use_web: false
+use_database: false
+use_docker: false
+use_ci: true
+use_docs: false
+use_pre_commit: true
+use_ai_agents: true
+ai_agents: [claude-code]

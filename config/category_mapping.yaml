@@ -1,0 +1,15 @@
+# Mapowanie kategorii, które zmieniły nazwę przez 4 lata eksportu.
+# Bez tego porównania rok-do-roku są bezwartościowe.
+# Agent proponuje wpisy podczas /waliduj; zatwierdzasz je ręcznie.
+#
+# format:
+#   kanoniczna_nazwa:
+#     - stara_nazwa_1
+#     - stara_nazwa_2
+
+mapowanie: {}
+
+# Kategorie celowo wykluczone z analizy wydatków konsumpcyjnych
+# (np. techniczne kategorie transferowe).
+wykluczone:
+  - "Przelew, wypłata"

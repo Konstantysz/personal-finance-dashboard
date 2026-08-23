@@ -1,0 +1,179 @@
+"""
+Testy skupione na trzech konkretnych błędach popełnionych w ręcznej analizie
+(patrz historia projektu), żeby żaden refaktor ich nie odtworzył:
+
+  1. saldo konta o mylącej nazwie pomylone z oszczędnościami,
+  2. wszystkie transfery policzone jako oszczędności zamiast tylko wpłat
+     na konto oszczędnościowe,
+  3. średnia z całego okresu maskująca trend w ostatnim miesiącu.
+"""
+
+from __future__ import annotations
+
+import pandas as pd
+import pytest
+
+from personal_finance_dashboard import data
+
+
+def _mk_row(
+    account: str,
+    category: str,
+    amount: float,
+    type_: str,
+    date: str,
+    transfer: bool = False,
+    payee: str = "",
+) -> dict[str, object]:
+    return {
+        "account": account,
+        "category": category,
+        "currency": "PLN",
+        "amount": amount,
+        "ref_currency_amount": amount,
+        "type": type_,
+        "payment_type": "Przelew bankowy",
+        "note": "",
+        "date": date,
+        "transfer": str(transfer).lower(),
+        "payee": payee,
+        "labels": "",
+    }
+
+
+@pytest.fixture
+def sample_df(tmp_path) -> pd.DataFrame:
+    rows = []
+    for month in range(1, 4):
+        d = f"2026-{month:02d}-10T00:00:00.000Z"
+        rows.append(_mk_row("PKO", "Wynagrodzenie", 10000, "Przychód", d))
+        # transfer oszczędnościowy: para PKO(Wydatek) <-> Konto oszcz.(Przychód)
+        t = f"2026-{month:02d}-11T00:00:00.000Z"
+        rows.append(_mk_row("PKO", "Przelew, wypłata", 1500, "Wydatek", t, True, "sav"))
+        rows.append(
+            _mk_row("Konto oszczędnościowe", "Przelew, wypłata", 1500, "Przychód", t, True, "sav")
+        )
+        # przesunięcie wewnętrzne PKO -> Revolut: NIE jest oszczędnością
+        t2 = f"2026-{month:02d}-08T00:00:00.000Z"
+        rows.append(_mk_row("PKO", "Przelew, wypłata", 100, "Wydatek", t2, True, "rev"))
+        rows.append(_mk_row("Revolut", "Przelew, wypłata", 100, "Przychód", t2, True, "rev"))
+        rows.append(
+            _mk_row(
+                "PKO", "Zakupy spożywcze", 2000, "Wydatek", f"2026-{month:02d}-15T00:00:00.000Z"
+            )
+        )
+
+    csv_path = tmp_path / "wallet_export.csv"
+    header = list(rows[0].keys())
+    with csv_path.open("w", encoding="utf-8") as f:
+        f.write(";".join(header) + "\n")
+        for r in rows:
+            f.write(";".join(str(r[k]) for k in header) + "\n")
+
+    return data.load(csv_path)
+
+
+def test_transfers_are_paired_not_counted_as_income_or_expense(sample_df: pd.DataFrame) -> None:
+    audit = data.audit_transfers(sample_df)
+    assert len(audit.pairs) == 6  # 3 miesiące x 2 pary
+    assert len(audit.orphans) == 0
+
+    # Suma przychodów NIE zawiera strony transferu (błąd nr 2 w innej postaci:
+    # gdyby transfer liczył się jako przychód/wydatek, poniższe by nie zgadzały).
+    inc = data.income(sample_df)["amount"].sum()
+    assert inc == pytest.approx(30000)  # tylko wynagrodzenie, 3 x 10000
+
+
+def test_savings_only_from_designated_account_not_all_transfers(sample_df: pd.DataFrame) -> None:
+    """Błąd #2: liczenie wszystkich transferów jako oszczędności."""
+    only_savings = data.savings(sample_df, ["Konto oszczędnościowe"])
+    assert only_savings["amount"].sum() == pytest.approx(4500)  # 3 x 1500
+
+    all_incoming_transfers = sample_df[sample_df["transfer"] & (sample_df["type"] == "Przychód")]
+    # Gdyby ktoś (błędnie) policzył wszystkie transfery jako oszczędności,
+    # wyszłoby więcej niż rzeczywiste wpłaty na konto oszczędnościowe.
+    assert all_incoming_transfers["amount"].sum() > only_savings["amount"].sum()
+
+
+def test_savings_requires_explicit_account_list(sample_df: pd.DataFrame) -> None:
+    """Nie zgaduj kont oszczędnościowych po nazwie — wymagaj jawnej listy."""
+    with pytest.raises(ValueError):
+        data.savings(sample_df, [])
+
+
+def test_regime_change_detection_finds_step_increase() -> None:
+    """Kategoria pojawiająca się od zera po N miesiącach = przełom."""
+    rows = []
+    for month in range(1, 8):
+        d = f"2025-{month:02d}-05T00:00:00.000Z"
+        rows.append(_mk_row("PKO", "Zakupy spożywcze", 500, "Wydatek", d))
+        if month >= 5:
+            rows.append(_mk_row("PKO", "Czynsz i media", 2500, "Wydatek", d))
+
+    import io
+
+    header = list(rows[0].keys())
+    buf = io.StringIO()
+    buf.write(";".join(header) + "\n")
+    for r in rows:
+        buf.write(";".join(str(r[k]) for k in header) + "\n")
+    buf.seek(0)
+
+    df = data.load(buf)
+    detected, _ = data.detect_regime_change(df)
+    assert detected == pd.Period("2025-05", freq="M")
+
+
+def test_detect_fixed_costs_empty_result_does_not_crash() -> None:
+    """
+    Regresja: przy zbyt krótkiej historii (brak >=3 miesięcy dla żadnej
+    pozycji) `out` jest puste, a pd.DataFrame([]) nie ma kolumn — sort_values
+    na nieistniejącej kolumnie wywala KeyError. Wykryte przy pierwszym
+    uruchomieniu `personal-finance-dashboard analyze` na świeżo sklonowanym repo z małym CSV.
+    """
+    rows = [
+        _mk_row("PKO", "Wynagrodzenie", 11000, "Przychód", "2025-08-10T00:00:00.000Z"),
+        _mk_row("PKO", "Czynsz i media", 2600, "Wydatek", "2025-08-12T00:00:00.000Z"),
+    ]
+    import io
+
+    header = list(rows[0].keys())
+    buf = io.StringIO()
+    buf.write(";".join(header) + "\n")
+    for r in rows:
+        buf.write(";".join(str(r[k]) for k in header) + "\n")
+    buf.seek(0)
+
+    df = data.load(buf)
+    result = data.detect_fixed_costs(df)  # nie może rzucić
+
+    assert result.empty
+    assert list(result.columns) == [
+        "pozycja",
+        "mediana_miesieczna",
+        "miesiecy",
+        "stabilnych",
+        "ostatni_miesiac",
+    ]
+
+
+def test_average_can_mask_last_month_trend() -> None:
+    """
+    Błąd #3: średnia z całego okresu vs ostatni miesiąc. Nie testujemy tu
+    konkretnej liczby — dokumentujemy, że rolling_view zawsze zwraca OBA
+    widoki, żeby nie dało się łatwo zgubić trendu.
+    """
+    flow = pd.DataFrame(
+        {
+            "przychod": [10000] * 5,
+            "wydatki": [11000, 10800, 10500, 10200, 9000],
+            "oszczednosci": [0] * 5,
+        },
+        index=pd.period_range("2025-08", periods=5, freq="M"),
+    )
+    flow["bilans"] = flow["przychod"] - flow["wydatki"] - flow["oszczednosci"]
+    view = data.rolling_view(flow, window=3)
+
+    assert flow["bilans"].mean() < 0  # średnia: deficyt
+    assert flow["bilans"].iloc[-1] > 0  # ostatni miesiąc: nadwyżka
+    assert "bilans_r3m" in view.columns  # oba widoki dostępne jednocześnie

@@ -1,0 +1,63 @@
+# Szablon. Agent wypełnia go podczas /profil i zapisuje jako config/profile.yaml.
+# profile.yaml jest w .gitignore — nie trafia do repo.
+
+meta:
+  utworzony: null
+  zaktualizowany: null
+
+osoba:
+  wiek: null
+  forma_zatrudnienia: null      # etat | jdg | inne  — determinuje limit IKZE
+  prog_podatkowy: null          # 12 | 32 — determinuje wartość ulgi IKZE
+  dochod_netto_miesiecznie: null
+  dochod_stabilny: null         # true | false
+  dzien_wyplaty: null           # dzień miesiąca, wykryty z danych i potwierdzony
+
+# --- Podział okresu. Najważniejsza sekcja pliku. ---------------------------
+okresy:
+  regime_change_date: 2025-08-01
+  regime_change_opis: "przeprowadzka — samodzielne mieszkanie"
+  regime_change_potwierdzony: false   # agent ustawia true po weryfikacji z użytkownikiem
+  archive_od: 2022-07-01
+  # Wcześniejsze zmiany reżimu, jeśli występują (zmiana pracy, wyprowadzka
+  # od rodziców, koniec studiów). Format: data + opis.
+  inne_przelomy: []
+
+konta:
+  oszczednosciowe: []           # tylko te; transfery TUTAJ = oszczędności
+  biezace: []
+  inwestycyjne: []
+  wykluczone_z_majatku: []      # np. karta lunchowa (benefit, nie płynne środki)
+  # Rzeczywiste salda na dzień — do sanity checku względem sumy transakcji
+  salda_rzeczywiste:
+    data: null
+    wartosci: {}
+
+cele:
+  krotkoterminowe: []
+    # - nazwa: "wkład własny na mieszkanie"
+    #   kwota: 150000
+    #   termin: 2029-08
+    #   priorytet: 1
+  dlugoterminowe: []
+
+profil_inwestycyjny:
+  tolerancja_ryzyka: null       # niska | srednia | wysoka
+  wiedza: null                  # zadna | podstawowa | srednia | zaawansowana
+  ograniczenia: []              # instrumenty wykluczone przez użytkownika
+  doradca_zewnetrzny: null      # czy ktoś doradza i czy trzeba to uwzględniać
+
+stan_wdrozenia:
+  # Co użytkownik FAKTYCZNIE zrobił, nie co planował.
+  ike_zalozone: null
+  ike_wplacone_w_tym_roku: null
+  ikze_zalozone: null
+  ikze_wplacone_w_tym_roku: null
+  obligacje_posiadane: []
+  etf_posiadane: []
+  poduszka_finansowa_kwota: null
+
+preferencje_raportu:
+  jezyk: pl
+  waluta: PLN
+  domyslne_okno: active         # active | recent | archive | all

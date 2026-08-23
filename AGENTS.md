@@ -1,0 +1,1 @@
+F:/finanse/CLAUDE.md

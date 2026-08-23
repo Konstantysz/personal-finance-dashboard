@@ -1,0 +1,70 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "personal-finance-dashboard"
+version = "0.1.0"
+description = "Analiza finansow osobistych - CLI + agent Claude Code"
+requires-python = ">=3.12"
+
+authors = [
+    { name = "Konstanty", email = "" }
+]
+
+license = { text = "proprietary" }
+dependencies = [
+    "pydantic-settings>=2.0",
+    "typer>=0.12",
+    "rich>=13.0",
+    "pandas>=2.0",
+    "pyyaml>=6.0",
+    "matplotlib>=3.7",
+    "tabulate>=0.9",
+]
+
+
+[project.scripts]
+personal-finance-dashboard = "personal_finance_dashboard.cli:app"
+
+
+[project.optional-dependencies]
+dev = [
+    "ruff",
+    "mypy",
+    "pytest",
+    "pytest-cov",
+    "pytest-xdist",
+    "pre-commit",
+    "pandas-stubs",
+    "types-PyYAML",
+]
+docs = [
+    "mkdocs-material",
+    "mkdocstrings[python]",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "B", "SIM", "ASYNC", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+# typer.Option(...) w domyślnych argumentach to idiom Typer, nie błąd.
+"src/personal_finance_dashboard/cli.py" = ["B008"]
+
+[tool.pytest.ini_options]
+addopts = "--cov=src/personal_finance_dashboard --cov-report=term-missing"
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = "matplotlib.*"
+ignore_missing_imports = true
