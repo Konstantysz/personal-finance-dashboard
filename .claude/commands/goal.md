@@ -6,15 +6,11 @@ date: 2026-08-23
 version: 1.0
 ---
 
-> **Status: spec, not implementation.** The corresponding CLI subcommand
-> (`personal-finance-dashboard goal`) is currently a stub returning error code 2 - see
-> `TODO.md`. This file describes the TARGET behavior, not a way to
-> work around the lack of implementation. **Do not do this manually** by loading
-> `data/raw/*.csv` into context (blocked by a hook anyway) - that is exactly
-> the pattern (calculating in the conversation context) the CLI is meant to
-> avoid. Instead: tell the user it's not implemented, and suggest either
-> implementing the subcommand in `src/personal_finance_dashboard/` following the
-> `validate`/`analyze` pattern, or waiting.
+## How to use
+
+Run: `uv run finanse goal <nazwa>`
+
+Simulates when a financial goal will be reached at current savings pace (base, conservative, and with random event scenarios). Shows monthly contribution needed to meet deadline or actual date if the goal is achievable.
 
 Argument: goal name. If it's in `config/profile.yaml` - take the parameters from there.
 If not - ask for the amount and deadline, then add it to the profile.

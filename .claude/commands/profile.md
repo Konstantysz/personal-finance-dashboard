@@ -6,11 +6,9 @@ date: 2026-08-23
 version: 1.0
 ---
 
-> **Status: spec, not implementation.** There is no `personal-finance-dashboard profile`
-> in the CLI yet (see `TODO.md`). Carry this out as a normal dialog: ask questions,
-> then save the answers to `config/profile.yaml` yourself (copy the structure
-> from `config/profile.example.yaml`). This does not require reading CSV, so the hook
-> won't block you here - but stick to the YAML format from the example.
+## How to use
+
+No CLI command yet. This is a dialog: ask questions one at a time, then save the answers to `config/profile.yaml` (use `config/profile.example.yaml` as template). Do not read raw CSV — use `/validate` report instead.
 
 Build or update `config/profile.yaml` based on `config/profile.example.yaml`.
 

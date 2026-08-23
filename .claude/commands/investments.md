@@ -6,15 +6,11 @@ date: 2026-08-23
 version: 1.0
 ---
 
-> **Status: spec, not implementation.** The corresponding CLI subcommand
-> (`personal-finance-dashboard invest`) is currently a stub returning error code 2 - see
-> `TODO.md`. This file describes the TARGET behavior, not a way to
-> work around the lack of implementation. **Do not do this manually** by loading
-> `data/raw/*.csv` into context (blocked by a hook anyway) - that is exactly
-> the pattern (calculating in the conversation context) the CLI is meant to
-> avoid. Instead: tell the user it's not implemented, and suggest either
-> implementing the subcommand in `src/personal_finance_dashboard/` following the
-> `validate`/`analyze` pattern, or waiting.
+## How to use
+
+Run: `uv run finanse invest`
+
+Creates an investment plan based on profile, current market parameters (`config/parameters.yaml`), and liquid balance from latest analysis. Shows instrument selection, IKE/IKZE allocation, conservative and base scenarios.
 
 **Before you calculate anything:**
 
