@@ -248,8 +248,14 @@ def detect_regime_change(
 # --------------------------------------------------------------------------
 
 
+_FIXED_COST_STABILITY_RATIO = 0.6
+
+
 def detect_fixed_costs(
-    df: pd.DataFrame, min_months: int = 3, tolerance: float = 0.20
+    df: pd.DataFrame,
+    min_months: int = 3,
+    tolerance: float = 0.20,
+    stability_ratio: float = _FIXED_COST_STABILITY_RATIO,
 ) -> pd.DataFrame:
     """
     Fixed cost candidates: same (category, payee) in >= min_months
@@ -257,6 +263,12 @@ def detect_fixed_costs(
 
     This is a HEURISTIC. Show the result to the user for approval - do not
     treat it as an established fact.
+
+    Args:
+        df: Transactions DataFrame.
+        min_months: Minimum consecutive months to consider.
+        tolerance: Allowed variance around median as fraction (0.20 = ±20%).
+        stability_ratio: Minimum ratio of stable months to total months (0.6 = 60%).
     """
     exp = expenses(df).copy()
     exp["key"] = exp["category"] + " | " + exp.get("payee", "")
@@ -270,7 +282,7 @@ def detect_fixed_costs(
         if med <= 0:
             continue
         within = ((per_month - med).abs() <= tolerance * med).sum()
-        if within >= min_months and within / len(per_month) >= 0.6:
+        if within >= min_months and within / len(per_month) >= stability_ratio:
             out.append(
                 {
                     "pozycja": key,
@@ -409,3 +421,166 @@ def monthly_summary(df: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, Any]]:
     }
 
     return df_summary, overall
+
+
+def category_analysis(df: pd.DataFrame, name: str) -> dict[str, Any]:
+    """Analyze one expense category, or return matching category names."""
+    categories = sorted(expenses(df)["category"].dropna().unique().tolist())
+    matches = [category for category in categories if name.casefold() in category.casefold()]
+    exact = [category for category in matches if category.casefold() == name.casefold()]
+    if len(exact) == 1:
+        matches = exact
+    if len(matches) != 1:
+        return {"category": None, "matches": matches, "ambiguous": bool(matches)}
+
+    category = matches[0]
+    selected = expenses(df)[expenses(df)["category"] == category].copy()
+    monthly = selected.groupby("month")["amount"].sum().sort_index()
+    mean = float(selected["amount"].mean()) if not selected.empty else 0.0
+    stdev = float(selected["amount"].std()) if len(selected) > 1 else 0.0
+    threshold = mean + 2 * stdev
+    outliers = selected[selected["amount"] > threshold]
+    payee = (
+        selected.groupby("payee", dropna=False)
+        .agg(suma=("amount", "sum"), transakcje=("amount", "size"))
+        .reset_index()
+    )
+    payee = payee.sort_values("suma", ascending=False).head(10)
+    return {
+        "category": category,
+        "matches": matches,
+        "ambiguous": False,
+        "active": {
+            "sum": float(selected["amount"].sum()),
+            "monthly_average": float(monthly.mean()) if not monthly.empty else 0.0,
+            "median": float(selected["amount"].median()) if not selected.empty else 0.0,
+            "stdev": stdev,
+            "months": len(monthly),
+        },
+        "monthly": monthly,
+        "rolling_3m": monthly.rolling(3).mean(),
+        "counterparties": payee.to_dict("records"),
+        "by_weekday": selected.groupby(selected["date"].dt.day_name()).size().to_dict(),
+        "outliers": outliers[["date", "amount", "note"]].to_dict("records"),
+    }
+
+
+def investment_plan(
+    profile: dict[str, Any],
+    params: dict[str, Any],
+    monthly_surplus: float,
+    starting_capital: float,
+) -> dict[str, Any]:
+    """Build an assumption-driven investment allocation and projections."""
+    if monthly_surplus < 0:
+        raise ValueError("Monthly surplus is negative; resolve cash flow before investing.")
+    emergency = profile.get("stan_wdrozenia", {}).get("poduszka_finansowa_kwota")
+    if emergency is None:
+        raise ValueError("Fill in stan_wdrozenia.poduszka_finansowa_kwota first.")
+    tax = float(params.get("podatki", {}).get("belka", 0.19))
+    retirement = params.get("konta_emerytalne", {})
+    form = profile.get("osoba", {}).get("forma_zatrudnienia")
+    ikze_key = "limit_jdg" if form == "jdg" else "limit_etat"
+    scenarios = params.get("symulacje", {})
+    conservative = scenarios.get("scenariusz_ostrozny", {})
+    base = scenarios.get("scenariusz_bazowy", {})
+    investable_capital = max(0.0, starting_capital - float(emergency))
+    return {
+        "emergency_fund": float(emergency),
+        "starting_capital": float(starting_capital),
+        "investable_capital": investable_capital,
+        "monthly_contribution": float(monthly_surplus),
+        "ike_limit": float(retirement.get("ike", {}).get("limit", 0)),
+        "ikze_limit": float(retirement.get("ikze", {}).get(ikze_key, 0)),
+        "bond_return_net": float(base.get("obligacje_edo", 0.0)) * (1 - tax),
+        "allocation": {"emergency_fund": float(emergency), "goals": investable_capital},
+        "scenarios": {
+            "conservative": {
+                "equity_return": float(conservative.get("akcje_globalne_nominalnie", 0))
+            },
+            "base": {"equity_return": float(base.get("akcje_globalne_nominalnie", 0))},
+        },
+        "contribution_drop_30_percent": float(monthly_surplus * 0.7),
+    }
+
+
+def goal_simulation(
+    target: float,
+    deadline: pd.Period,
+    current_capital: float,
+    monthly_surplus: float,
+    returns: dict[str, float],
+    seasonal_factors: list[float] | None = None,
+    current_month: pd.Period | None = None,
+) -> dict[str, Any]:
+    """Simulate required contributions and three goal accumulation scenarios."""
+    current = current_month or pd.Timestamp.now().to_period("M")
+    months = max(0, (deadline.year - current.year) * 12 + deadline.month - current.month)
+    seasonality = sum(seasonal_factors or [1.0]) / len(seasonal_factors or [1.0])
+    effective_contribution = monthly_surplus * seasonality
+    scenarios: dict[str, list[float]] = {}
+    for label, annual_return in returns.items():
+        monthly_return = (1 + annual_return) ** (1 / 12) - 1
+        values = [float(current_capital)]
+        for _ in range(months):
+            values.append(values[-1] * (1 + monthly_return) + effective_contribution)
+        scenarios[label] = values
+    event = scenarios.get("base", [float(current_capital)]).copy()
+    for index in range(min(3, max(0, len(event) - 1))):
+        event[index + 1] = event[index]
+    scenarios["random_event"] = event
+    rate = (1 + returns.get("base", 0.0)) ** (1 / 12) - 1
+    required = (
+        target / months
+        if months and rate == 0
+        else (
+            (target - current_capital * (1 + rate) ** months) * rate / ((1 + rate) ** months - 1)
+            if months
+            else max(0.0, target - current_capital)
+        )
+    )
+    return {
+        "target": float(target),
+        "months": months,
+        "required_monthly_contribution": max(0.0, float(required)) / max(seasonality, 1e-9),
+        "monthly_surplus": float(monthly_surplus),
+        "seasonality_factor": seasonality,
+        "annual_savings_difference": float(monthly_surplus * 12 * (1 - seasonality)),
+        "scenarios": scenarios,
+        "reachable": (not scenarios["base"] or scenarios["base"][-1] >= target),
+    }
+
+
+def tax_calculation(
+    profile: dict[str, Any], params: dict[str, Any], today: pd.Timestamp | None = None
+) -> dict[str, Any]:
+    """Calculate current-year IKE/IKZE room and the IKZE deduction."""
+    person = profile.get("osoba", {})
+    form = person.get("forma_zatrudnienia")
+    bracket = person.get("prog_podatkowy")
+    if form not in {"etat", "jdg"}:
+        raise ValueError("Fill in osoba.forma_zatrudnienia first.")
+    if bracket not in {12, 32}:
+        raise ValueError("Fill in osoba.prog_podatkowy first.")
+    state = profile.get("stan_wdrozenia", {})
+    ike_paid = state.get("ike_wplacone_w_tym_roku")
+    ikze_paid = state.get("ikze_wplacone_w_tym_roku")
+    if ike_paid is None or ikze_paid is None:
+        raise ValueError("Fill in this year's IKE and IKZE contributions first.")
+    retirement = params.get("konta_emerytalne", {})
+    ikze = retirement.get("ikze", {})
+    limits = {
+        "ike": float(retirement.get("ike", {}).get("limit", 0)),
+        "ikze": float(ikze.get("limit_jdg" if form == "jdg" else "limit_etat", 0)),
+    }
+    current = (today or pd.Timestamp.now()).date()
+    year_end = pd.Timestamp(year=current.year, month=12, day=31).date()
+    return {
+        "year": current.year,
+        "days_to_year_end": (year_end - current).days,
+        "ike_remaining": max(0.0, limits["ike"] - float(ike_paid)),
+        "ikze_remaining": max(0.0, limits["ikze"] - float(ikze_paid)),
+        "ikze_deduction_at_limit": max(0.0, limits["ikze"] - float(ikze_paid)) * bracket / 100,
+        "limits": limits,
+        "bonds_tax_free_outside_wrappers": False,
+    }

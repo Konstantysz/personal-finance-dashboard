@@ -63,12 +63,23 @@ def plot_monthly_categories_stacked(
     """
     Stacked bar chart: months on the X axis, expenses by category.
     Shows only the top N categories; the rest goes into "Inne".
+
+    Args:
+        df: DataFrame with columns: month, category, amount.
+        out_path: Output PNG file path.
+        top_n: Number of top categories to show (rest grouped as "Inne").
+
+    Raises:
+        ValueError: If required columns missing or DataFrame is empty.
     """
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
     if "month" not in df.columns or "category" not in df.columns or "amount" not in df.columns:
         raise ValueError("DataFrame must have columns: month, category, amount")
+
+    if df.empty:
+        raise ValueError("DataFrame is empty; nothing to plot")
 
     monthly_by_cat = df.groupby(["month", "category"])["amount"].sum().unstack(fill_value=0)
 
@@ -83,6 +94,38 @@ def plot_monthly_categories_stacked(
     ax.set_xlabel("Month")
     ax.set_title(f"Monthly expenses (top {top_n} categories)")
     ax.legend(title="Category", bbox_to_anchor=(1.05, 1), loc="upper left", fontsize=8)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=150)
+    plt.close(fig)
+    return out_path
+
+
+def plot_category(monthly: pd.Series, out_path: str | Path, title: str) -> Path:
+    """Plot a category's monthly expenses."""
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig, ax = plt.subplots(figsize=(10, 5))
+    ax.plot(monthly.index.astype(str), monthly.to_numpy(), marker="o")
+    ax.set_ylabel("PLN")
+    ax.set_title(title)
+    ax.tick_params(axis="x", rotation=45)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=150)
+    plt.close(fig)
+    return out_path
+
+
+def plot_goal(values: dict[str, list[float]], target: float, out_path: str | Path) -> Path:
+    """Plot goal accumulation scenarios."""
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig, ax = plt.subplots(figsize=(10, 5))
+    for label, series in values.items():
+        ax.plot(range(len(series)), series, label=label)
+    ax.axhline(target, color="black", linestyle="--", label="Goal")
+    ax.set_ylabel("PLN")
+    ax.set_xlabel("Month")
+    ax.legend()
     fig.tight_layout()
     fig.savefig(out_path, dpi=150)
     plt.close(fig)

@@ -52,7 +52,7 @@ select = ["E", "F", "I", "N", "UP", "B", "SIM", "ASYNC", "RUF"]
 "src/personal_finance_dashboard/cli.py" = ["B008"]
 
 [tool.pytest.ini_options]
-addopts = "--cov=src/personal_finance_dashboard --cov-report=term-missing"
+addopts = "--cov=src/personal_finance_dashboard --cov-report=term-missing --cov-fail-under=80"
 testpaths = ["tests"]
 pythonpath = ["src"]
 

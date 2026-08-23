@@ -21,6 +21,8 @@ import typer
 
 from personal_finance_dashboard import data
 from personal_finance_dashboard.charts import (
+    plot_category,
+    plot_goal,
     plot_monthly_categories_stacked,
     plot_monthly_flow,
     plot_top_categories,
@@ -170,7 +172,14 @@ def analyze(
         f"Months in window: {len(flow)}.",
         "",
         "## Monthly flow",
-        flow.round(0).to_markdown(),
+        flow.drop(columns=["stopa_oszczedzania"]).round(0).to_markdown(),
+        "",
+        "## Savings rate",
+        flow[["stopa_oszczedzania"]]
+        .mul(100)
+        .round(1)
+        .rename(columns={"stopa_oszczedzania": "stopa_oszczedzania_%"})
+        .to_markdown(),
         "",
         "## Fixed costs (candidates, for approval)",
         fixed_costs.to_markdown(index=False) if not fixed_costs.empty else "None detected.",
@@ -215,6 +224,51 @@ def _not_implemented(name: str, doc_command: str) -> None:
     raise typer.Exit(code=2)
 
 
+def _build_monthly_report(
+    cat_summary: pd.DataFrame,
+    overall: dict[str, Any],
+    fixed_costs: pd.DataFrame,
+    profile: dict[str, Any],
+) -> str:
+    """Build markdown report for monthly category analysis.
+
+    Args:
+        cat_summary: DataFrame with category statistics.
+        overall: Dict with overall statistics.
+        fixed_costs: DataFrame with fixed cost candidates.
+        profile: User profile dict.
+
+    Returns:
+        Markdown report as string.
+    """
+    report_lines = [
+        f"# Expense analysis by category — {date.today().isoformat()}",
+        "",
+        "## Overall statistics",
+        f"- Period: {profile['okresy']['regime_change_date']} → present",
+        f"- Number of months: {overall['liczba_miesiecy']}",
+        f"- Average expenses/month: {overall['srednia_wydatki']:.2f} PLN",
+        f"- Min (cheapest month): {overall['min_miesiace']:.2f} PLN",
+        f"- Max (most expensive month): {overall['max_miesiace']:.2f} PLN",
+        f"- Standard deviation: {overall['stdev_miesiace']:.2f} PLN",
+        "",
+        "## Distribution by category",
+        cat_summary.to_markdown(index=False),
+        "",
+    ]
+
+    if not fixed_costs.empty:
+        report_lines += [
+            "## Fixed expenses (candidates)",
+            "⚠️ **These are heuristic candidates, not verified fixed costs.**"
+            " Please review and approve before using in budget planning.",
+            fixed_costs.to_markdown(index=False),
+            "",
+        ]
+
+    return "\n".join(report_lines)
+
+
 @app.command()
 def monthly(
     csv_path: Path = typer.Option(DEFAULT_CSV, "--csv"),
@@ -252,32 +306,11 @@ def monthly(
         CHARTS_DIR / "wydatki_kategorie_srednia.png",
     )
 
-    report_lines = [
-        f"# Expense analysis by category — {date.today().isoformat()}",
-        "",
-        "## Overall statistics",
-        f"- Period: {profile['okresy']['regime_change_date']} → present",
-        f"- Number of months: {overall['liczba_miesiecy']}",
-        f"- Average expenses/month: {overall['srednia_wydatki']:.2f} PLN",
-        f"- Min (cheapest month): {overall['min_miesiace']:.2f} PLN",
-        f"- Max (most expensive month): {overall['max_miesiace']:.2f} PLN",
-        f"- Standard deviation: {overall['stdev_miesiace']:.2f} PLN",
-        "",
-        "## Distribution by category",
-        cat_summary.to_markdown(index=False),
-        "",
-    ]
-
-    if not fixed_costs.empty:
-        report_lines += [
-            "## Fixed expenses (candidates)",
-            fixed_costs.to_markdown(index=False),
-            "",
-        ]
+    report_text = _build_monthly_report(cat_summary, overall, fixed_costs, profile)
 
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     report_path = REPORTS_DIR / f"miesiaczne_{date.today().isoformat()}.md"
-    report_path.write_text("\n".join(report_lines), encoding="utf-8")
+    report_path.write_text(report_text, encoding="utf-8")
 
     _emit(
         {
@@ -289,6 +322,7 @@ def monthly(
             "stdev": overall["stdev_miesiace"],
             "categories_count": len(cat_summary),
             "fixed_costs_candidates": len(fixed_costs),
+            "fixed_costs_note": "Candidates are HEURISTIC — review and approve before using",
             "top_3_categories": cat_summary.head(3)[["kategoria", "srednia"]].to_dict("records"),
             "report": str(report_path),
             "charts": [str(stacked_chart), str(top_cat_chart)],
@@ -297,21 +331,224 @@ def monthly(
 
 
 @app.command()
-def category(name: str = typer.Argument(...)) -> None:
-    """Deep dive into a category. NOT IMPLEMENTED - see TODO.md."""
-    _not_implemented("category", "/category")
+def category(
+    name: str = typer.Argument(...),
+    csv_path: Path = typer.Option(DEFAULT_CSV, "--csv"),
+    profile_path: Path = typer.Option(DEFAULT_PROFILE, "--profile"),
+) -> None:
+    """Deep dive into one ACTIVE expense category."""
+    if not csv_path.exists() or not profile_path.exists():
+        _emit({"ok": False, "error": "CSV and profile are required."})
+        raise typer.Exit(code=1)
+    df = data.load(csv_path)
+    profile = data.load_profile(profile_path)
+    windows = data.split_periods(df, profile)
+    result = data.category_analysis(windows["active"], name)
+    if result["category"] is None:
+        _emit(
+            {
+                "ok": False,
+                "error": "Category is missing or ambiguous.",
+                "matches": result["matches"],
+            }
+        )
+        raise typer.Exit(code=2)
+    archive = data.category_analysis(windows["archive"], result["category"])
+    chart = plot_category(
+        result["monthly"], CHARTS_DIR / f"kategoria_{result['category']}.png", result["category"]
+    )
+    report_lines = [
+        f"# Category: {result['category']}",
+        "",
+        "## ACTIVE",
+        str(result["active"]),
+        "",
+        "## Top counterparties",
+        pd.DataFrame(result["counterparties"]).to_markdown(index=False),
+        "",
+        "## Outliers",
+        pd.DataFrame(result["outliers"]).to_markdown(index=False),
+        "",
+        "## ARCHIVE context",
+        str(archive.get("active", {})),
+        "",
+    ]
+    if any(
+        word in result["category"].casefold()
+        for word in ("miesz", "czynsz", "media", "spoż", "zakup")
+    ):
+        report_lines += ["This comparison may reflect a lifestyle change, not extravagance.", ""]
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+    report_path = REPORTS_DIR / f"kategoria_{result['category']}_{date.today().isoformat()}.md"
+    report_path.write_text("\n".join(report_lines), encoding="utf-8")
+    _emit(
+        {
+            "ok": True,
+            "category": result["category"],
+            "active": result["active"],
+            "report": str(report_path),
+            "chart": str(chart),
+        }
+    )
 
 
 @app.command()
-def invest() -> None:
-    """Investment plan. NOT IMPLEMENTED - see TODO.md."""
-    _not_implemented("invest", "/investments")
+def invest(
+    csv_path: Path = typer.Option(DEFAULT_CSV, "--csv"),
+    profile_path: Path = typer.Option(DEFAULT_PROFILE, "--profile"),
+    params_path: Path = typer.Option(DEFAULT_PARAMS, "--params"),
+) -> None:
+    """Create an investment plan from actual ACTIVE cash flow and balances."""
+    if not csv_path.exists() or not profile_path.exists() or not params_path.exists():
+        _emit({"ok": False, "error": "CSV, profile, and parameters are required."})
+        raise typer.Exit(code=1)
+    profile = data.load_profile(profile_path)
+    freshness = data.check_parameters_freshness(params_path)
+    if freshness["stale"]:
+        _emit(
+            {
+                "ok": False,
+                "error": "Parameters are stale; refresh parameters first.",
+                "params": freshness,
+            }
+        )
+        raise typer.Exit(code=1)
+    params = data.load_profile(params_path)
+    df = data.load(csv_path)
+    active = data.split_periods(df, profile)["active"]
+    flow = data.monthly_flow(active, profile.get("konta", {}).get("oszczednosciowe", []))
+    surplus = float(flow["bilans"].mean()) if not flow.empty else 0.0
+    balances = profile.get("konta", {}).get("salda_rzeczywiste", {}).get("wartosci", {})
+    starting = sum(
+        float(balances.get(account, 0))
+        for account in profile.get("konta", {}).get("oszczednosciowe", [])
+    )
+    try:
+        result = data.investment_plan(profile, params, surplus, starting)
+    except ValueError as exc:
+        _emit({"ok": False, "error": str(exc)})
+        raise typer.Exit(code=1) from exc
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+    report_path = REPORTS_DIR / f"inwestycje_{date.today().isoformat()}.md"
+    report_path.write_text(
+        "# Investment plan\n\n"
+        + pd.Series(result).to_string()
+        + "\n\nSimulation on assumptions, not investment advice.\n",
+        encoding="utf-8",
+    )
+    _emit(
+        {
+            "ok": True,
+            "monthly_contribution": result["monthly_contribution"],
+            "investable_capital": result["investable_capital"],
+            "params": freshness,
+            "report": str(report_path),
+        }
+    )
 
 
 @app.command()
-def goal(name: str = typer.Argument(...)) -> None:
-    """Goal simulation. NOT IMPLEMENTED - see TODO.md."""
-    _not_implemented("goal", "/goal")
+def goal(
+    name: str = typer.Argument(...),
+    csv_path: Path = typer.Option(DEFAULT_CSV, "--csv"),
+    profile_path: Path = typer.Option(DEFAULT_PROFILE, "--profile"),
+    params_path: Path = typer.Option(DEFAULT_PARAMS, "--params"),
+) -> None:
+    """Simulate a configured financial goal."""
+    if not csv_path.exists() or not profile_path.exists() or not params_path.exists():
+        _emit({"ok": False, "error": "CSV, profile, and parameters are required."})
+        raise typer.Exit(code=1)
+    profile = data.load_profile(profile_path)
+    goals = profile.get("cele", {}).get("krotkoterminowe", []) + profile.get("cele", {}).get(
+        "dlugoterminowe", []
+    )
+    found = next(
+        (item for item in goals if item.get("nazwa", "").casefold() == name.casefold()), None
+    )
+    if not found or found.get("kwota") is None or found.get("termin") is None:
+        _emit(
+            {
+                "ok": False,
+                "error": "Unknown goal or missing amount/deadline.",
+                "matches": [item.get("nazwa") for item in goals],
+            }
+        )
+        raise typer.Exit(code=2)
+    df = data.load(csv_path)
+    windows = data.split_periods(df, profile)
+    flow = data.monthly_flow(windows["active"], profile.get("konta", {}).get("oszczednosciowe", []))
+    surplus = float(flow["bilans"].mean()) if not flow.empty else 0.0
+    balances = profile.get("konta", {}).get("salda_rzeczywiste", {}).get("wartosci", {})
+    current_capital = sum(
+        float(balances.get(account, 0))
+        for account in profile.get("konta", {}).get("oszczednosciowe", [])
+    )
+    params = data.load_profile(params_path)
+    simulation = params.get("symulacje", {})
+    archive_flow = data.monthly_flow(
+        windows["archive"], profile.get("konta", {}).get("oszczednosciowe", [])
+    )
+    factors = (
+        (archive_flow["bilans"] / archive_flow["bilans"].mean()).dropna().tolist()
+        if not archive_flow.empty and archive_flow["bilans"].mean()
+        else [1.0]
+    )
+    result = data.goal_simulation(
+        float(found["kwota"]),
+        pd.Period(found["termin"], freq="M"),
+        current_capital,
+        surplus,
+        {
+            "conservative": simulation.get("scenariusz_ostrozny", {}).get(
+                "akcje_globalne_nominalnie", 0
+            ),
+            "base": simulation.get("scenariusz_bazowy", {}).get("akcje_globalne_nominalnie", 0),
+        },
+        factors,
+    )
+    chart = plot_goal(result["scenarios"], result["target"], CHARTS_DIR / f"goal_{name}.png")
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+    report_path = REPORTS_DIR / f"goal_{name}_{date.today().isoformat()}.md"
+    report_path.write_text(
+        "# Goal simulation\n\n"
+        + pd.Series({k: v for k, v in result.items() if k != "scenarios"}).to_string(),
+        encoding="utf-8",
+    )
+    _emit(
+        {
+            "ok": True,
+            "goal": name,
+            "required_monthly_contribution": result["required_monthly_contribution"],
+            "reachable": result["reachable"],
+            "report": str(report_path),
+            "chart": str(chart),
+        }
+    )
+
+
+@app.command()
+def taxes(
+    profile_path: Path = typer.Option(DEFAULT_PROFILE, "--profile"),
+    params_path: Path = typer.Option(DEFAULT_PARAMS, "--params"),
+) -> None:
+    """Calculate current-year IKE and IKZE room."""
+    if not profile_path.exists() or not params_path.exists():
+        _emit({"ok": False, "error": "Profile and parameters are required."})
+        raise typer.Exit(code=1)
+    try:
+        result = data.tax_calculation(
+            data.load_profile(profile_path), data.load_profile(params_path)
+        )
+    except ValueError as exc:
+        _emit({"ok": False, "error": str(exc)})
+        raise typer.Exit(code=1) from exc
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+    report_path = REPORTS_DIR / f"taxes_{result['year']}.md"
+    report_path.write_text(
+        "# Taxes\n\n" + pd.Series(result).to_string() + "\n\nThis is not tax advice.\n",
+        encoding="utf-8",
+    )
+    _emit({"ok": True, **result, "report": str(report_path)})
 
 
 if __name__ == "__main__":

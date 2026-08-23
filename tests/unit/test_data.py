@@ -10,6 +10,8 @@ Testy skupione na trzech konkretnych błędach popełnionych w ręcznej analizie
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pandas as pd
 import pytest
 
@@ -212,3 +214,105 @@ def test_monthly_summary_empty_expenses_returns_empty(tmp_path) -> None:
     assert cat_summary.empty
     assert overall["liczba_miesiecy"] == 0
     assert overall["srednia_wydatki"] == 0.0
+
+
+def test_category_analysis_uses_active_data_and_finds_outliers(sample_df: pd.DataFrame) -> None:
+    result = data.category_analysis(sample_df, "Zakupy")
+
+    assert result["category"] == "Zakupy spożywcze"
+    assert result["active"]["sum"] == pytest.approx(6000)
+    assert result["active"]["monthly_average"] == pytest.approx(2000)
+    assert result["counterparties"][0]["payee"] == ""
+    assert result["outliers"] == []
+
+
+def test_category_analysis_reports_ambiguous_matches(sample_df: pd.DataFrame) -> None:
+    extra = sample_df.iloc[-1].copy()
+    extra["category"] = "Zakupy chemiczne"
+    result = data.category_analysis(pd.concat([sample_df, extra.to_frame().T]), "Zakupy")
+
+    assert result["ambiguous"] is True
+    assert len(result["matches"]) > 1
+
+
+def test_investment_plan_has_two_scenarios_and_net_bond_return() -> None:
+    profile = {
+        "osoba": {"forma_zatrudnienia": "etat", "prog_podatkowy": 12},
+        "stan_wdrozenia": {"poduszka_finansowa_kwota": 10000},
+    }
+    params = {
+        "podatki": {"belka": 0.19},
+        "konta_emerytalne": {"ike": {"limit": 28260}, "ikze": {"limit_etat": 11304}},
+        "symulacje": {
+            "scenariusz_ostrozny": {"obligacje_edo": 0.045, "akcje_globalne_nominalnie": 0.05},
+            "scenariusz_bazowy": {"obligacje_edo": 0.05, "akcje_globalne_nominalnie": 0.07},
+        },
+    }
+
+    result = data.investment_plan(profile, params, monthly_surplus=3000, starting_capital=20000)
+
+    assert set(result["scenarios"]) == {"conservative", "base"}
+    assert result["bond_return_net"] == pytest.approx(0.05 * 0.81)
+    assert result["monthly_contribution"] == pytest.approx(3000)
+
+
+def test_goal_simulation_returns_three_scenarios() -> None:
+    result = data.goal_simulation(
+        target=12000,
+        deadline=pd.Period("2027-12", freq="M"),
+        current_capital=0,
+        monthly_surplus=1000,
+        returns={"conservative": 0.02, "base": 0.05},
+        seasonal_factors=[0.8, 1.2],
+    )
+
+    assert set(result["scenarios"]) == {"conservative", "base", "random_event"}
+    assert result["required_monthly_contribution"] > 0
+    assert result["seasonality_factor"] == pytest.approx(1.0)
+
+
+def test_detect_fixed_costs_identifies_stable_categories(sample_df: pd.DataFrame) -> None:
+    """detect_fixed_costs finds expenses with stable monthly amounts."""
+    result = data.detect_fixed_costs(sample_df, min_months=2, tolerance=0.20)
+
+    assert isinstance(result, pd.DataFrame)
+    assert not result.empty
+    assert "pozycja" in result.columns
+    assert "mediana_miesieczna" in result.columns
+    assert "stabilnych" in result.columns
+
+
+def test_detect_fixed_costs_empty_df_returns_empty(tmp_path: Path) -> None:
+    """detect_fixed_costs returns empty DataFrame for income-only data."""
+    rows = [
+        _mk_row("PKO", "Wynagrodzenie", 5000, "Przychód", "2025-08-10T00:00:00.000Z"),
+    ]
+    csv_path = tmp_path / "income_only.csv"
+    header = list(rows[0].keys())
+    with csv_path.open("w", encoding="utf-8") as f:
+        f.write(";".join(header) + "\n")
+        for r in rows:
+            f.write(";".join(str(r[k]) for k in header) + "\n")
+
+    df = data.load(csv_path)
+    result = data.detect_fixed_costs(df)
+
+    assert result.empty
+
+
+def test_detect_fixed_costs_respects_stability_ratio(sample_df: pd.DataFrame) -> None:
+    """detect_fixed_costs uses stability_ratio parameter correctly."""
+    result_strict = data.detect_fixed_costs(
+        sample_df, min_months=2, tolerance=0.20, stability_ratio=0.95
+    )
+    result_loose = data.detect_fixed_costs(
+        sample_df, min_months=2, tolerance=0.20, stability_ratio=0.50
+    )
+
+    assert isinstance(result_strict, pd.DataFrame)
+    assert isinstance(result_loose, pd.DataFrame)
+
+
+def test_tax_calculation_requires_explicit_profile_fields() -> None:
+    with pytest.raises(ValueError, match="forma_zatrudnienia"):
+        data.tax_calculation({}, {"konta_emerytalne": {}}, today=pd.Timestamp("2026-08-23"))
