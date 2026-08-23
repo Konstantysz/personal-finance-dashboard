@@ -6,7 +6,7 @@ touches data/raw/*.csv. Each subcommand:
   2. prints a short JSON summary to stdout.
 
 The agent reads stdout and does not load the entire report back into context.
-Implemented: `validate`, `analyze`. The rest are stubs - see TODO.md.
+Implemented: `validate`, `analyze`, `monthly`, `category`, `invest`, `taxes`, `goal`.
 """
 
 from __future__ import annotations
@@ -23,7 +23,6 @@ from personal_finance_dashboard import data
 from personal_finance_dashboard.charts import (
     plot_category,
     plot_goal,
-    plot_monthly_categories_stacked,
     plot_monthly_flow,
     plot_top_categories,
 )
@@ -225,48 +224,90 @@ def _not_implemented(name: str, doc_command: str) -> None:
 
 
 def _build_monthly_report(
-    cat_summary: pd.DataFrame,
-    overall: dict[str, Any],
-    fixed_costs: pd.DataFrame,
-    profile: dict[str, Any],
+    trends: dict[str, Any],
 ) -> str:
-    """Build markdown report for monthly category analysis.
+    """Build one-page markdown report for monthly close analysis.
 
     Args:
-        cat_summary: DataFrame with category statistics.
-        overall: Dict with overall statistics.
-        fixed_costs: DataFrame with fixed cost candidates.
+        trends: Dict from data.monthly_trends().
         profile: User profile dict.
 
     Returns:
         Markdown report as string.
     """
+    last_month = trends["last_month"]
+    stats = trends["last_month_stats"]
+    trends_data = trends["trends"]
+    pct = trends["pct_change"]
+    categories = trends["category_changes"]
+    new_cats = trends["new_categories"]
+    new_fixed = trends["new_fixed_costs"]
+
     report_lines = [
-        f"# Expense analysis by category — {date.today().isoformat()}",
+        f"# Monthly close — {last_month}",
         "",
-        "## Overall statistics",
-        f"- Period: {profile['okresy']['regime_change_date']} → present",
-        f"- Number of months: {overall['liczba_miesiecy']}",
-        f"- Average expenses/month: {overall['srednia_wydatki']:.2f} PLN",
-        f"- Min (cheapest month): {overall['min_miesiace']:.2f} PLN",
-        f"- Max (most expensive month): {overall['max_miesiace']:.2f} PLN",
-        f"- Standard deviation: {overall['stdev_miesiace']:.2f} PLN",
+        "## Last month balance",
+        f"- Expenses: **{stats['wydatki']:.2f} PLN**",
+        f"- Income: {stats['przychod']:.2f} PLN",
+        f"- Savings: {stats['oszczednosci']:.2f} PLN",
+        f"- Balance: **{stats['bilans']:.2f} PLN** "
+        f"({'positive' if stats['bilans'] > 0 else 'negative'})",
         "",
-        "## Distribution by category",
-        cat_summary.to_markdown(index=False),
+        "## Trends (3M / 6M / 12M average)",
+        f"- 3M average: {trends_data['wydatki_3m']} PLN "
+        f"({pct.get('vs_3m', 0):+.1f}% vs last month)",
+        f"- 6M average: {trends_data['wydatki_6m']} PLN ({pct.get('vs_6m', 0):+.1f}% vs last month)"
+        if trends_data["wydatki_6m"]
+        else "",
+        f"- 12M average: {trends_data['wydatki_12m']} PLN "
+        f"({pct.get('vs_12m', 0):+.1f}% vs last month)"
+        if trends_data["wydatki_12m"]
+        else "",
         "",
+        "## Category changes (vs 3M average)",
     ]
 
-    if not fixed_costs.empty:
+    if categories["up"]:
+        report_lines += ["**Largest increases:**"]
+        for item in categories["up"]:
+            report_lines.append(f"- {item['kategoria']}: +{item['zmiana']:.2f} PLN")
+        report_lines.append("")
+
+    if categories["down"]:
+        report_lines += ["**Largest decreases:**"]
+        for item in categories["down"]:
+            report_lines.append(f"- {item['kategoria']}: {item['zmiana']:.2f} PLN")
+        report_lines.append("")
+
+    if new_cats:
         report_lines += [
-            "## Fixed expenses (candidates)",
-            "⚠️ **These are heuristic candidates, not verified fixed costs.**"
-            " Please review and approve before using in budget planning.",
-            fixed_costs.to_markdown(index=False),
+            "## New categories",
+            ", ".join(new_cats),
             "",
         ]
 
-    return "\n".join(report_lines)
+    if new_fixed:
+        report_lines += [
+            "## New fixed cost candidates",
+            "⚠️ **Review and approve before using in budget planning.**",
+        ]
+        for fc in new_fixed:
+            report_lines.append(
+                f"- {fc['pozycja']}: {fc['mediana_miesieczna']} PLN "
+                f"({fc['stabilnych']}/{fc['miesiecy']} months stable)"
+            )
+        report_lines.append("")
+
+    # IKZE reminder for Nov/Dec
+    today = date.today()
+    if today.month in (11, 12):
+        report_lines += [
+            "## ⏰ IKZE deadline reminder",
+            "**31 December deadline.** Contribute by end of year for tax deduction.",
+            "",
+        ]
+
+    return "\n".join(line for line in report_lines if line is not None)
 
 
 @app.command()
@@ -275,14 +316,14 @@ def monthly(
     profile_path: Path = typer.Option(DEFAULT_PROFILE, "--profile"),
 ) -> None:
     """
-    Expense analysis by category: mean/month, min/max, distribution,
-    fixed expense detection.
+    Month close: last full month vs 3M/6M/12M trends.
+    One-page report with category changes and goal progress.
     """
     if not csv_path.exists():
         _emit({"ok": False, "error": f"Missing file {csv_path}"})
         raise typer.Exit(code=1)
     if not profile_path.exists():
-        _emit({"ok": False, "error": f"Missing {profile_path}. Run /profil."})
+        _emit({"ok": False, "error": f"Missing {profile_path}. Run /profile."})
         raise typer.Exit(code=1)
 
     df = data.load(csv_path)
@@ -294,38 +335,25 @@ def monthly(
         _emit({"ok": False, "error": "No data in the ACTIVE window"})
         raise typer.Exit(code=1)
 
-    cat_summary, overall = data.monthly_summary(active)
-    fixed_costs = data.detect_fixed_costs(active)
-
-    CHARTS_DIR.mkdir(parents=True, exist_ok=True)
-    stacked_chart = plot_monthly_categories_stacked(
-        active, CHARTS_DIR / "wydatki_kategorie_miesiacz.png"
-    )
-    top_cat_chart = plot_top_categories(
-        active[active["type"] == "Wydatek"].groupby("category")["amount"].sum(),
-        CHARTS_DIR / "wydatki_kategorie_srednia.png",
-    )
-
-    report_text = _build_monthly_report(cat_summary, overall, fixed_costs, profile)
+    trends = data.monthly_trends(active, profile.get("konta", {}).get("oszczednosciowe", []))
+    report_text = _build_monthly_report(trends)
 
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
-    report_path = REPORTS_DIR / f"miesiaczne_{date.today().isoformat()}.md"
+    report_path = REPORTS_DIR / f"miesiac_{trends['last_month']}.md"
     report_path.write_text(report_text, encoding="utf-8")
 
     _emit(
         {
             "ok": True,
-            "months": overall["liczba_miesiecy"],
-            "avg_expenses": overall["srednia_wydatki"],
-            "min_month": overall["min_miesiace"],
-            "max_month": overall["max_miesiace"],
-            "stdev": overall["stdev_miesiace"],
-            "categories_count": len(cat_summary),
-            "fixed_costs_candidates": len(fixed_costs),
-            "fixed_costs_note": "Candidates are HEURISTIC — review and approve before using",
-            "top_3_categories": cat_summary.head(3)[["kategoria", "srednia"]].to_dict("records"),
+            "last_month": trends["last_month"],
+            "last_month_balance": trends["last_month_stats"]["bilans"],
+            "pct_vs_3m": trends["pct_change"].get("vs_3m"),
+            "pct_vs_12m": trends["pct_change"].get("vs_12m"),
+            "top_3_up": trends["category_changes"]["up"],
+            "top_3_down": trends["category_changes"]["down"],
+            "new_categories": len(trends["new_categories"]),
+            "new_fixed_costs": len(trends["new_fixed_costs"]),
             "report": str(report_path),
-            "charts": [str(stacked_chart), str(top_cat_chart)],
         }
     )
 

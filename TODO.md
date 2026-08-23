@@ -47,20 +47,21 @@ an empty/small repo are exactly what a real user does first.
 
 ## `personal-finance-dashboard monthly` - month close
 
-✅ **Implemented and tested** (session 2026-08-23).
+✅ **Implemented and tested** (session 2026-08-24).
 
-Spec: `.claude/commands/monthly.md`. Comparison of the last full month with the
-previous one, rolling 3M, same month a year earlier (with a caveat about the
-ACTIVE/ARCHIVE boundary). Reminder about the IKZE deadline in November/December.
+Spec: `.claude/commands/monthly.md`. Comparison of the last full month with 3M/6M/12M
+trends. One-page report with top 3 category changes (up/down), new categories, new fixed
+cost candidates, and IKZE deadline reminder in Nov/Dec.
 
 Implementation includes:
 
-- `monthly_summary()` in `data.py` — category statistics and overall stats
-- `detect_fixed_costs()` in `data.py` — heuristic identification with disclaimer
-- `plot_monthly_categories_stacked()` in `charts.py` — stacked bar chart
-- `_build_monthly_report()` in `cli.py` — markdown report generation
-- `monthly` CLI command — orchestration
-- 15 new unit tests for full coverage of new code
+- `monthly_trends()` in `data.py` — extract last month, compute 3M/6M/12M averages,
+  category changes, new categories, new fixed costs
+- `_build_monthly_report()` in `cli.py` — one-page markdown report generation
+- `monthly` CLI command — loads CSV, calls monthly_trends, saves report as
+  `output/reports/miesiac_YYYY-MM.md`, prints JSON summary
+- 3 new unit tests covering: last month extraction, category change detection,
+  single-month edge case
 - Fixed costs are explicitly marked as HEURISTIC in both JSON and markdown
 
 ## `personal-finance-dashboard category <name>` - deep dive into a category

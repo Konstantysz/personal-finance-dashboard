@@ -8,7 +8,7 @@ version: 1.0
 
 ## How to use
 
-Run: `uv run finanse goal <nazwa>`
+Run: `uv run personal-finance-dashboard goal <nazwa>`
 
 Simulates when a financial goal will be reached at current savings pace (base, conservative, and with random event scenarios). Shows monthly contribution needed to meet deadline or actual date if the goal is achievable.
 

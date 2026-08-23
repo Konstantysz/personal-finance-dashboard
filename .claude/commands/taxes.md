@@ -8,7 +8,7 @@ version: 1.0
 
 ## How to use
 
-Run: `uv run finanse taxes`
+Run: `uv run personal-finance-dashboard taxes`
 
 Calculates current-year IKE and IKZE remaining limits, deduction value (in PLN, not %), and the December 31 deadline. Shows how much can be contributed this year and optimal allocation between IKE/IKZE based on tax bracket and employment form.
 

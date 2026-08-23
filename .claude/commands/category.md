@@ -8,7 +8,7 @@ version: 1.0
 
 ## How to use
 
-Run: `uv run finanse category <nazwa>`
+Run: `uv run personal-finance-dashboard category <nazwa>`
 
 Shows detailed analysis of a single category: historical trends, top counterparties, outliers, fixed vs. variable split.
 

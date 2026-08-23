@@ -8,7 +8,7 @@ version: 1.0
 
 ## How to use
 
-Run: `uv run finanse invest`
+Run: `uv run personal-finance-dashboard invest`
 
 Creates an investment plan based on profile, current market parameters (`config/parameters.yaml`), and liquid balance from latest analysis. Shows instrument selection, IKE/IKZE allocation, conservative and base scenarios.
 

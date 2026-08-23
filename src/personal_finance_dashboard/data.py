@@ -551,6 +551,115 @@ def goal_simulation(
     }
 
 
+def monthly_trends(df: pd.DataFrame, savings_accounts: list[str]) -> dict[str, Any]:
+    """
+    Analyze the last full month: compare with 3M/6M/12M averages.
+
+    Returns dict with:
+    - last_month: Period of the last full month
+    - last_month_stats: expenses, income, savings, balance for last month
+    - trends: 3M, 6M, 12M average expenses
+    - pct_change: % change of last month vs 3M/6M/12M averages
+    - category_changes: top 3 up/down by change vs 3M avg
+    - new_categories: categories that appeared in last month but not in 3M before
+    - new_fixed_costs: fixed costs candidates from last month
+    """
+    if df.empty:
+        raise ValueError("No data to analyze")
+
+    flow = monthly_flow(df, savings_accounts)
+    if flow.empty:
+        raise ValueError("No monthly flow data")
+
+    last_month = flow.index.max()
+    last_month_data = flow.loc[last_month]
+
+    # Trends: 3M, 6M, 12M averages
+    trend_3m = flow.iloc[-3:]["wydatki"].mean() if len(flow) >= 3 else None
+    trend_6m = flow.iloc[-6:]["wydatki"].mean() if len(flow) >= 6 else None
+    trend_12m = flow.iloc[-12:]["wydatki"].mean() if len(flow) >= 12 else None
+
+    last_expenses = float(last_month_data["wydatki"])
+    pct_change = {}
+    if trend_3m:
+        pct_change["vs_3m"] = ((last_expenses - trend_3m) / trend_3m * 100) if trend_3m > 0 else 0.0
+    if trend_6m:
+        pct_change["vs_6m"] = ((last_expenses - trend_6m) / trend_6m * 100) if trend_6m > 0 else 0.0
+    if trend_12m:
+        pct_change["vs_12m"] = (
+            ((last_expenses - trend_12m) / trend_12m * 100) if trend_12m > 0 else 0.0
+        )
+
+    # Category changes: last month vs 3M average
+    exp = expenses(df)
+    if not exp.empty:
+        last_month_categories = (
+            exp[exp["month"] == last_month]
+            .groupby("category")["amount"]
+            .sum()
+            .sort_values(ascending=False)
+        )
+
+        # 3M average by category
+        months_3m = flow.index[-3:] if len(flow) >= 3 else flow.index
+        avg_3m_categories = exp[exp["month"].isin(months_3m)].groupby("category")[
+            "amount"
+        ].sum() / len(months_3m)
+
+        # Change: last month - 3M avg
+        all_categories = set(last_month_categories.index) | set(avg_3m_categories.index)
+        changes = {}
+        for cat in all_categories:
+            last = last_month_categories.get(cat, 0.0)
+            avg = avg_3m_categories.get(cat, 0.0)
+            changes[cat] = last - avg
+
+        changes_sorted = sorted(changes.items(), key=lambda x: x[1], reverse=True)
+        top_3_up = changes_sorted[:3]
+        top_3_down = changes_sorted[-3:]
+        top_3_down.reverse()
+    else:
+        top_3_up = []
+        top_3_down = []
+
+    # New categories in last month
+    last_month_cats = set(exp[exp["month"] == last_month]["category"].unique())
+    prev_months_cats = set(exp[exp["month"] < last_month]["category"].unique())
+    new_categories = sorted(last_month_cats - prev_months_cats)
+
+    # Fixed costs: check if any new ones appeared
+    all_fixed = detect_fixed_costs(df)
+    new_fixed = (
+        all_fixed[all_fixed["ostatni_miesiac"] == str(last_month)]
+        if not all_fixed.empty
+        else pd.DataFrame()
+    )
+
+    return {
+        "last_month": str(last_month),
+        "last_month_stats": {
+            "wydatki": round(float(last_month_data["wydatki"]), 2),
+            "przychod": round(float(last_month_data["przychod"]), 2),
+            "oszczednosci": round(float(last_month_data["oszczednosci"]), 2),
+            "bilans": round(float(last_month_data["bilans"]), 2),
+        },
+        "trends": {
+            "wydatki_3m": round(trend_3m, 2) if trend_3m else None,
+            "wydatki_6m": round(trend_6m, 2) if trend_6m else None,
+            "wydatki_12m": round(trend_12m, 2) if trend_12m else None,
+        },
+        "pct_change": {k: round(v, 1) for k, v in pct_change.items()},
+        "category_changes": {
+            "up": [{"kategoria": cat, "zmiana": round(change, 2)} for cat, change in top_3_up],
+            "down": [{"kategoria": cat, "zmiana": round(change, 2)} for cat, change in top_3_down],
+        },
+        "new_categories": new_categories,
+        "new_fixed_costs": (
+            [dict(row) for _, row in new_fixed.iterrows()] if not new_fixed.empty else []
+        ),
+    }
+
+
 def tax_calculation(
     profile: dict[str, Any], params: dict[str, Any], today: pd.Timestamp | None = None
 ) -> dict[str, Any]:

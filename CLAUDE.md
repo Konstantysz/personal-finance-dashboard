@@ -1,4 +1,4 @@
-# finanse - personal finance analysis agent
+# personal-finance-dashboard - personal finance analysis agent
 
 Concisely, without decorative headings/emoji. Concrete facts, numbers, source of each number.
 
@@ -9,32 +9,30 @@ Concisely, without decorative headings/emoji. Concrete facts, numbers, source of
 - Format: `uv run ruff format . && uv run ruff check --fix .`
 - Type check: `uv run mypy src`
 - Lint (all): `uv run pre-commit run --all-files`
-- CLI: `uv run finanse <validate|analyze|monthly|category|invest|goal>`
+- CLI: `uv run personal-finance-dashboard <validate|analyze|monthly|category|invest|taxes|goal>`
 
 ## Overriding principle: CLI, not raw data
 
 CSV transformation (parsing, pairing transfers, splitting into periods) is a
-deterministic task - see `src/finanse/data.py`, the only source of this logic.
+deterministic task - see `src/personal_finance_dashboard/data.py`, the only source of this logic.
 **You do not read `data/raw/*.csv` directly** and you do not calculate anything
 from it manually in the conversation context. Blocked by a hook
 (`.claude/hooks/block_raw_csv_read.py`) - this is not just a request.
 
-Instead: call `uv run finanse <subcommand>`. Each subcommand writes a full
-report to `output/reports/*.md` and charts to `output/charts/*.png`, and prints
+Instead: call `uv run personal-finance-dashboard <subcommand>`. Each subcommand writes
+a full report to `output/reports/*.md` and charts to `output/charts/*.png`, and prints
 **one line of JSON** to stdout with key numbers. Read this JSON and comment on
 it - do not load entire reports back into context unless the user asks about
 something the JSON does not cover.
 
-Implemented: `validate`, `analyze`. The rest (`monthly`, `category`, `invest`,
-`goal`) are stubs returning an error code - see `TODO.md` before trying to use
-them or implementing them ad hoc in conversation.
+Implemented: `validate`, `analyze`, `monthly`, `category`, `invest`, `taxes`, `goal`.
 
 ## Structure
 
-- `src/finanse/data.py` - parsing, transfers, time windows, fixed costs
-- `src/finanse/charts.py` - ready-made chart functions (always these, never ad hoc
+- `src/personal_finance_dashboard/data.py` - parsing, transfers, time windows, fixed costs
+- `src/personal_finance_dashboard/charts.py` - ready-made chart functions (always these, never ad hoc
   matplotlib called from non-CLI-wrapped code)
-- `src/finanse/cli.py` - Typer commands, the only entry point to `data.py`
+- `src/personal_finance_dashboard/cli.py` - Typer commands, the only entry point to `data.py`
 - `config/profile.yaml` - user profile (gitignored, section below)
 - `config/parameters.yaml` - market/tax rates with verification date
 - `config/category_mapping.yaml` - mapping of categories changed over time
@@ -63,7 +61,7 @@ Not in this file. Current numbers: `config/parameters.yaml` (has
 `last_verified` - if older than 60 days, `analyze` returns `params_stale`
 in JSON; warn the user instead of calculating on stale data).
 Mechanics and instrument selection principles:
-`.claude/commands/investmentss.md`, `.claude/commands/taxes.md` - read them for
+`.claude/commands/investments.md`, `.claude/commands/taxes.md` - read them for
 the relevant task, not upfront.
 
 ## Boundaries

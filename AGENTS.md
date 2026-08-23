@@ -1,1 +1,1 @@
-F:/finanse/CLAUDE.md
+F:/personal-finance-dashboard/CLAUDE.md

@@ -313,6 +313,56 @@ def test_detect_fixed_costs_respects_stability_ratio(sample_df: pd.DataFrame) ->
     assert isinstance(result_loose, pd.DataFrame)
 
 
+def test_monthly_trends_returns_last_month_and_averages(sample_df: pd.DataFrame) -> None:
+    """monthly_trends extracts last month data and compares with 3M/6M/12M."""
+    result = data.monthly_trends(sample_df, ["Konto oszczędnościowe"])
+
+    assert "last_month" in result
+    assert "last_month_stats" in result
+    assert "trends" in result
+    assert "pct_change" in result
+    assert "category_changes" in result
+
+    # Last month should be the latest period
+    assert result["last_month"] == "2026-03"
+
+    # Stats should have key fields
+    stats = result["last_month_stats"]
+    assert "wydatki" in stats
+    assert "bilans" in stats
+
+
+def test_monthly_trends_categories_up_down(sample_df: pd.DataFrame) -> None:
+    """monthly_trends identifies top 3 up/down categories vs 3M avg."""
+    result = data.monthly_trends(sample_df, ["Konto oszczędnościowe"])
+
+    changes = result["category_changes"]
+    assert "up" in changes
+    assert "down" in changes
+    assert isinstance(changes["up"], list)
+    assert isinstance(changes["down"], list)
+
+
+def test_monthly_trends_single_month_works(tmp_path: Path) -> None:
+    """monthly_trends works with single month (no rolling averages)."""
+    rows = [
+        _mk_row("PKO", "Wynagrodzenie", 5000, "Przychód", "2025-08-10T00:00:00.000Z"),
+        _mk_row("PKO", "Zakupy", 1000, "Wydatek", "2025-08-15T00:00:00.000Z"),
+    ]
+    csv_path = tmp_path / "single_month.csv"
+    header = list(rows[0].keys())
+    with csv_path.open("w", encoding="utf-8") as f:
+        f.write(";".join(header) + "\n")
+        for r in rows:
+            f.write(";".join(str(r[k]) for k in header) + "\n")
+
+    df = data.load(csv_path)
+    result = data.monthly_trends(df, ["Konto oszczędnościowe"])
+    assert result["last_month"] == "2025-08"
+    # 3M/6M/12M should be None (no historical data)
+    assert result["trends"]["wydatki_3m"] is None
+
+
 def test_tax_calculation_requires_explicit_profile_fields() -> None:
     with pytest.raises(ValueError, match="forma_zatrudnienia"):
         data.tax_calculation({}, {"konta_emerytalne": {}}, today=pd.Timestamp("2026-08-23"))
