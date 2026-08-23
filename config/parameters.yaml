@@ -1,6 +1,6 @@
 # Market and tax parameters.
 # Verify before each investment analysis. Sources in comments.
-# Agent: if last_verified is older than 60 days — warn the user.
+# Agent: if last_verified is older than 60 days - warn the user.
 
 last_verified: 2026-08-22
 
@@ -30,7 +30,7 @@ podatki:
   pit_prog_2_od: 120000.00
 
 # --- Retail bonds -------------------------------------------------------------
-# Source: obligacjeskarbowe.pl — AUGUST 2026 issuance.
+# Source: obligacjeskarbowe.pl - AUGUST 2026 issuance.
 # NOTE: interest rates change every month. Verify before purchasing.
 # NOTE: interest is subject to 19% Belka tax OUTSIDE IKE/IKZE.
 obligacje:
@@ -83,5 +83,5 @@ symulacje:
 # --- Note for the agent -------------------------------------------------------
 # Bond interest rates have dropped significantly compared to 2025 (EDO was ~8%,
 # now 5.35% in the first period). If the user refers to an older plan based on
-# 8% — point this out, because it changes the cost-benefit calculation of
+# 8% - point this out, because it changes the cost-benefit calculation of
 # bonds vs savings account vs equity portion.

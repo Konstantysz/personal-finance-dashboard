@@ -3,8 +3,8 @@ Single source of truth for loading and cleaning transaction data.
 
 `cli.py` imports from here and is the only allowed place that calls these
 functions on raw CSV. The agent (Claude Code) does not read data/raw/*.csv
-directly — see CLAUDE.md and .claude/settings.json (blocking hook).
-Do not duplicate transfer logic or period division anywhere else — three
+directly - see CLAUDE.md and .claude/settings.json (blocking hook).
+Do not duplicate transfer logic or period division anywhere else - three
 errors in the previous (manual) analysis came exactly from the fact that
 rules were being rewritten ad hoc for each question.
 """
@@ -122,7 +122,7 @@ def audit_transfers(df: pd.DataFrame) -> TransferAudit:
 
 
 # --------------------------------------------------------------------------
-# Basic filters — use THESE, not your own conditions
+# Basic filters - use THESE, not your own conditions
 # --------------------------------------------------------------------------
 
 
@@ -147,7 +147,7 @@ def savings(df: pd.DataFrame, savings_accounts: list[str]) -> pd.DataFrame:
     if not savings_accounts:
         raise ValueError(
             "The list of savings accounts is empty. Fill in config/profile.yaml "
-            "— don't guess by account names."
+            "- don't guess by account names."
         )
     return df[df["transfer"] & (df["type"] == TYPE_INCOME) & (df["account"].isin(savings_accounts))]
 
@@ -171,7 +171,7 @@ def split_periods(df: pd.DataFrame, profile: dict[str, Any]) -> dict[str, pd.Dat
     Returns windows: archive / active / recent / all.
 
     ACTIVE is the default window for EVERY budget analysis. ARCHIVE serves only
-    for seasonality, basket inflation, and history — not for average expenses.
+    for seasonality, basket inflation, and history - not for average expenses.
     """
     change = pd.Timestamp(profile["okresy"]["regime_change_date"])
 
@@ -211,7 +211,7 @@ def detect_regime_change(
     if housing.empty:
         return None, pd.Series(dtype=float)
 
-    # Fill missing months with zeros — otherwise "category appeared from zero"
+    # Fill missing months with zeros - otherwise "category appeared from zero"
     # is indistinguishable from "category existed all along".
     monthly = housing.groupby("month")["amount"].sum()
     full_idx = pd.period_range(df["month"].min(), df["month"].max(), freq="M")
@@ -255,7 +255,7 @@ def detect_fixed_costs(
     Fixed cost candidates: same (category, payee) in >= min_months
     consecutive months, amount within +/- tolerance around the median.
 
-    This is a HEURISTIC. Show the result to the user for approval — do not
+    This is a HEURISTIC. Show the result to the user for approval - do not
     treat it as an established fact.
     """
     exp = expenses(df).copy()
@@ -293,7 +293,7 @@ def detect_fixed_costs(
 
 
 # --------------------------------------------------------------------------
-# Market parameters — freshness
+# Market parameters - freshness
 # --------------------------------------------------------------------------
 
 

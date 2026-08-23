@@ -96,7 +96,7 @@ def test_savings_only_from_designated_account_not_all_transfers(sample_df: pd.Da
 
 
 def test_savings_requires_explicit_account_list(sample_df: pd.DataFrame) -> None:
-    """Nie zgaduj kont oszczędnościowych po nazwie — wymagaj jawnej listy."""
+    """Nie zgaduj kont oszczędnościowych po nazwie - wymagaj jawnej listy."""
     with pytest.raises(ValueError):
         data.savings(sample_df, [])
 
@@ -127,7 +127,7 @@ def test_regime_change_detection_finds_step_increase() -> None:
 def test_detect_fixed_costs_empty_result_does_not_crash() -> None:
     """
     Regresja: przy zbyt krótkiej historii (brak >=3 miesięcy dla żadnej
-    pozycji) `out` jest puste, a pd.DataFrame([]) nie ma kolumn — sort_values
+    pozycji) `out` jest puste, a pd.DataFrame([]) nie ma kolumn - sort_values
     na nieistniejącej kolumnie wywala KeyError. Wykryte przy pierwszym
     uruchomieniu `personal-finance-dashboard analyze` na świeżo sklonowanym repo z małym CSV.
     """
@@ -160,7 +160,7 @@ def test_detect_fixed_costs_empty_result_does_not_crash() -> None:
 def test_average_can_mask_last_month_trend() -> None:
     """
     Błąd #3: średnia z całego okresu vs ostatni miesiąc. Nie testujemy tu
-    konkretnej liczby — dokumentujemy, że rolling_view zawsze zwraca OBA
+    konkretnej liczby - dokumentujemy, że rolling_view zawsze zwraca OBA
     widoki, żeby nie dało się łatwo zgubić trendu.
     """
     flow = pd.DataFrame(

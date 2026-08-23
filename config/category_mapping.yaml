@@ -1,6 +1,6 @@
 # Mapping of categories that changed names over 4 years of exports.
 # Without this, year-over-year comparisons are worthless.
-# The agent proposes entries during /waliduj; you approve them manually.
+# The agent proposes entries during /validate; you approve them manually.
 #
 # format:
 #   canonical_name:

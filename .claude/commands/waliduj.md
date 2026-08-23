@@ -1,20 +1,24 @@
 ---
-description: Kontrola jakości danych — uruchamiaj przy każdym nowym CSV
+title: Validate
+description: Data quality check — run with every new CSV
+author: Konstanty Szumigaj
+date: 2026-08-23
+version: 1.0
 ---
 
-Uruchom `uv run personal-finance-dashboard validate` (opcjonalnie `--csv <ścieżka>` jeśli
-użytkownik wskazał inny plik niż domyślny `data/raw/wallet_export.csv`).
+Run `uv run personal-finance-dashboard validate` (optionally `--csv <path>` if the user
+pointed to a file other than the default `data/raw/wallet_export.csv`).
 
-To polecenie **jest** implementacją tej komendy — nie licz niczego ręcznie
-z CSV, nie czytaj go bezpośrednio (i tak zablokowane hookiem).
+This command **is** the implementation of this command — don't calculate anything
+manually from the CSV, don't read it directly (blocked by a hook anyway).
 
-Przeczytaj JSON ze stdout. Kluczowe pola: `transfer_orphans`,
+Read the JSON from stdout. Key fields: `transfer_orphans`,
 `transfer_malformed`, `duplicates`, `large_transactions`, `sparse_months`.
 
-Jeżeli którekolwiek z nich > 0 — **nie idź dalej automatycznie**. Otwórz
-pełny raport (`report` w JSON, plik w `output/reports/`) tylko w zakresie
-sekcji dotyczącej problemu, pokaż użytkownikowi konkrety (daty, kwoty) i
-zapytaj, co to jest. Nie zgaduj.
+If any of them > 0 — **don't proceed automatically**. Open the full report
+(`report` in the JSON, file in `output/reports/`) only for the section
+concerning the problem, show the user the specifics (dates, amounts), and
+ask what it is. Don't guess.
 
-Jeżeli wszystko czyste — powiedz to jednym zdaniem z liczbami z JSON
-(zakres dat, liczba transakcji, liczba kont) i zaproponuj `/analiza`.
+If everything is clean — say so in one sentence with the numbers from the JSON
+(date range, transaction count, account count) and suggest `/analysis`.

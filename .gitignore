@@ -59,7 +59,8 @@ Thumbs.db
 
 # Other
 *.log
-# Dane osobiste — nigdy do repo
+
+# Personal data
 config/profile.yaml
 data/raw/*.csv
 data/processed/*

@@ -5,7 +5,7 @@ PreToolUse hook: blocks direct reads of data/raw/*.csv by Claude.
 Design decision: the agent should read the results of
 `personal-finance-dashboard validate` / `personal-finance-dashboard
 analyze` (JSON on stdout + reports in output/), not raw transactions. This
-saves tokens (data transformation is a deterministic task, see checklist.md —
+saves tokens (data transformation is a deterministic task, see checklist.md -
 Module 7) and prevents a situation where calculation logic (transfers, time
 windows) is rewritten ad hoc in the conversation context instead of living in
 one place (src/personal_finance_dashboard/data.py).
@@ -51,7 +51,7 @@ def main() -> int:
     try:
         payload = json.load(sys.stdin)
     except (json.JSONDecodeError, ValueError):
-        return 0  # don't block on unintelligible input — fail open
+        return 0  # don't block on unintelligible input - fail open
 
     tool_name = payload.get("tool_name", "")
     text = _tool_input_text(payload)

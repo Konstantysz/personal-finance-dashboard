@@ -1,5 +1,5 @@
 # Template. The agent fills it in during /profil and saves it as config/profile.yaml.
-# profile.yaml is in .gitignore — it does not go into the repo.
+# profile.yaml is in .gitignore - it does not go into the repo.
 
 meta:
   utworzony: null
@@ -7,8 +7,8 @@ meta:
 
 osoba:
   wiek: null
-  forma_zatrudnienia: null      # etat | jdg | inne — determines the IKZE limit
-  prog_podatkowy: null          # 12 | 32 — determines the value of the IKZE deduction
+  forma_zatrudnienia: null      # etat | jdg | inne - determines the IKZE limit
+  prog_podatkowy: null          # 12 | 32 - determines the value of the IKZE deduction
   dochod_netto_miesiecznie: null
   dochod_stabilny: null         # true | false
   dzien_wyplaty: null           # day of month, detected from data and confirmed
@@ -16,7 +16,7 @@ osoba:
 # --- Period division. The most important section of the file. -----------------
 okresy:
   regime_change_date: 2025-08-01
-  regime_change_opis: "move — independent apartment"
+  regime_change_opis: "move - independent apartment"
   regime_change_potwierdzony: false   # agent sets to true after verification with the user
   archive_od: 2022-07-01
   # Earlier regime changes, if any (job change, moving out from parents,
@@ -28,7 +28,7 @@ konta:
   biezace: []
   inwestycyjne: []
   wykluczone_z_majatku: []      # e.g., lunch card (benefit, not liquid funds)
-  # Actual balances as of a date — for sanity check against the transaction sum
+  # Actual balances as of a date - for sanity check against the transaction sum
   salda_rzeczywiste:
     data: null
     wartosci: {}

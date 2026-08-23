@@ -1,49 +1,52 @@
 ---
-description: Optymalizacja IKE/IKZE — limity roku bieżącego i deadline 31.12
+title: Taxes
+description: IKE/IKZE optimization - current-year limits and the 31.12 deadline
+author: Konstanty Szumigaj
+date: 2026-08-23
+version: 1.0
 ---
 
-> **Status: spec, nie implementacja.** Odpowiadający subcommand CLI
-> (`personal-finance-dashboard invest`) to na razie stub zwracający kod błędu 2 — patrz
-> `TODO.md`. Ten plik opisuje DOCELOWE zachowanie, nie sposób na
-> obejście braku implementacji. **Nie realizuj tego ręcznie** wczytując
-> `data/raw/*.csv` do kontekstu (i tak zablokowane hookiem) — to jest
-> dokładnie ten wzorzec (liczenie w kontekście rozmowy), którego CLI ma
-> unikać. Zamiast tego: powiedz użytkownikowi, że to niezaimplementowane,
-> i zaproponuj albo zaimplementowanie subcommand w `src/personal_finance_dashboard/` wg
-> wzorca `validate`/`analyze`, albo poczekanie.
+> **Status: spec, not implementation.** The corresponding CLI subcommand
+> (`personal-finance-dashboard invest`) is currently a stub returning error code 2 - see
+> `TODO.md`. This file describes the TARGET behavior, not a way to
+> work around the lack of implementation. **Do not do this manually** by loading
+> `data/raw/*.csv` into context (blocked by a hook anyway) - that is exactly
+> the pattern (calculating in the conversation context) the CLI is meant to
+> avoid. Instead: tell the user it's not implemented, and suggest either
+> implementing the subcommand in `src/personal_finance_dashboard/` following the
+> `validate`/`analyze` pattern, or waiting.
 
+**Establish first:**
+- today's date and how many days remain until December 31
+- the tax year and limits from `config/parameters.yaml`
+- employment form (etat vs JDG - different IKZE limits) and tax bracket
+- how much the user has already contributed this year (`stan_wdrozenia`) - if they don't know,
+  ask; don't assume zero
 
-**Ustal najpierw:**
-- dzisiejszą datę i ile dni zostało do 31 grudnia
-- rok podatkowy i limity z `config/parameters.yaml`
-- formę zatrudnienia (etat vs JDG — różne limity IKZE) i próg podatkowy
-- ile użytkownik już wpłacił w tym roku (`stan_wdrozenia`) — jeżeli nie wie,
-  zapytaj, nie zakładaj zera
+**Calculate:**
+- remaining IKE and IKZE limit for this year
+- value of the IKZE deduction = planned contribution × tax rate. Give the amount in PLN,
+  not a percentage.
+- how much of this the user can realistically afford, considering the monthly balance
+  and the emergency fund. **Don't suggest maximizing the limit if it would mean
+  touching the emergency fund.** The limit is a ceiling, not a target.
 
-**Policz:**
-- pozostały limit IKE i IKZE na ten rok
-- wartość ulgi IKZE = planowana wpłata × stawka podatkowa. Podaj kwotę w złotych,
-  nie procent.
-- ile z tego realnie stać użytkownika, biorąc pod uwagę bilans miesięczny
-  i poduszkę. **Nie sugeruj maksymalizacji limitu, jeżeli oznaczałaby to
-  naruszenie poduszki finansowej.** Limit to sufit, nie cel.
+**What to put where:**
+Principle: the assets that gain the most in a tax wrapper are those that would
+otherwise pay the highest tax and have the longest horizon. At comparable rates
+this is usually the equity portion. But show the calculation, not the rule -
+calculate the difference in PLN for both variants over the user's horizon.
 
-**Co gdzie umieścić:**
-Zasada: w opakowaniu podatkowym najwięcej zyskują aktywa, które inaczej
-zapłaciłyby najwyższy podatek i mają najdłuższy horyzont. Przy porównywalnych
-stawkach to zwykle część akcyjna. Ale pokaż rachunek, nie regułę — policz
-różnicę w złotych dla obu wariantów na horyzoncie użytkownika.
+Beware a common mistake: treasury bonds **are not** exempt from Belka tax.
+They are exempt only inside IKE/IKZE.
 
-Uwaga na częsty błąd: obligacje skarbowe **nie są** zwolnione z podatku Belki.
-Zwolnione są dopiero w IKE/IKZE.
+**Calendar:**
+- IKZE: the contribution must be booked by 31.12. Account for transfer time
+  and possible account setup (a few business days).
+- an unused limit is lost; it does not roll over to the next year
 
-**Kalendarz:**
-- IKZE: wpłata musi być zaksięgowana do 31.12. Uwzględnij czas przelewu
-  i ewentualne zakładanie konta (kilka dni roboczych).
-- limit niewykorzystany przepada, nie przechodzi na kolejny rok
+If fewer than 45 days remain until year-end - put the calendar at the top of the answer.
+If more than 6 months - don't scare with the deadline; just plan spaced-out contributions.
 
-Jeżeli do końca roku zostało < 45 dni — postaw kalendarz na początku odpowiedzi.
-Jeżeli > 6 miesięcy — nie strasz deadline'em, po prostu zaplanuj rozłożenie wpłat.
-
-Raport: `output/reports/podatki_YYYY.md`.
-Zastrzeżenie: to nie jest porada podatkowa.
+Report: `output/reports/taxes_YYYY.md`.
+Disclaimer: this is not tax advice.

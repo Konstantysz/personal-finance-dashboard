@@ -1,12 +1,12 @@
 """
-CLI for the tool. The only place through which anyone — agent or human —
+CLI for the tool. The only place through which anyone - agent or human -
 touches data/raw/*.csv. Each subcommand:
 
   1. writes a full report (.md) and charts (.png) to disk,
   2. prints a short JSON summary to stdout.
 
 The agent reads stdout and does not load the entire report back into context.
-Implemented: `validate`, `analyze`. The rest are stubs — see TODO.md.
+Implemented: `validate`, `analyze`. The rest are stubs - see TODO.md.
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ import typer
 from personal_finance_dashboard import data
 from personal_finance_dashboard.charts import plot_monthly_flow, plot_top_categories
 
-app = typer.Typer(help="Personal finance analysis — CSV -> report + JSON.")
+app = typer.Typer(help="Personal finance analysis - CSV -> report + JSON.")
 
 DEFAULT_CSV = Path("data/raw/wallet_export.csv")
 DEFAULT_PROFILE = Path("config/profile.yaml")
@@ -42,7 +42,7 @@ def validate(
 ) -> None:
     """
     Data quality check: coverage, accounts, transfers, anomalies.
-    Does not calculate a budget. Equivalent of /waliduj.
+    Does not calculate a budget. Equivalent of /validate.
     """
     if not csv_path.exists():
         _emit({"ok": False, "error": f"Missing file {csv_path}"})
@@ -68,7 +68,7 @@ def validate(
     )
 
     report_lines = [
-        f"# Data validation — {date.today().isoformat()}",
+        f"# Data validation - {date.today().isoformat()}",
         "",
         f"Range: {df['date'].min().date()} → {df['date'].max().date()}, {len(df)} transactions.",
         "",
@@ -99,7 +99,7 @@ def validate(
         ]
 
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
-    report_path = REPORTS_DIR / f"waliduj_{date.today().isoformat()}.md"
+    report_path = REPORTS_DIR / f"validate_{date.today().isoformat()}.md"
     report_path.write_text("\n".join(report_lines), encoding="utf-8")
 
     _emit(
@@ -128,13 +128,13 @@ def analyze(
 ) -> None:
     """
     Full ACTIVE window analysis: flow, categories, fixed costs.
-    Equivalent of /analiza.
+    Equivalent of /analysis.
     """
     if not csv_path.exists():
         _emit({"ok": False, "error": f"Missing file {csv_path}"})
         raise typer.Exit(code=1)
     if not profile_path.exists():
-        _emit({"ok": False, "error": f"Missing {profile_path}. Run /profil."})
+        _emit({"ok": False, "error": f"Missing {profile_path}. Run /profile."})
         raise typer.Exit(code=1)
 
     df = data.load(csv_path)
@@ -161,7 +161,7 @@ def analyze(
     params_check = data.check_parameters_freshness(params_path)
 
     report_lines = [
-        f"# Analysis — ACTIVE window (from {profile['okresy']['regime_change_date']})",
+        f"# Analysis - ACTIVE window (from {profile['okresy']['regime_change_date']})",
         "",
         f"Months in window: {len(flow)}.",
         "",
@@ -176,7 +176,7 @@ def analyze(
         "",
     ]
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
-    report_path = REPORTS_DIR / f"analiza_{date.today().isoformat()}.md"
+    report_path = REPORTS_DIR / f"analysis_{date.today().isoformat()}.md"
     report_path.write_text("\n".join(report_lines), encoding="utf-8")
 
     _emit(
@@ -213,26 +213,26 @@ def _not_implemented(name: str, doc_command: str) -> None:
 
 @app.command()
 def monthly() -> None:
-    """Month close. NOT IMPLEMENTED — see TODO.md."""
-    _not_implemented("monthly", "/miesiac")
+    """Month close. NOT IMPLEMENTED - see TODO.md."""
+    _not_implemented("monthly", "/monthly")
 
 
 @app.command()
 def category(name: str = typer.Argument(...)) -> None:
-    """Deep dive into a category. NOT IMPLEMENTED — see TODO.md."""
-    _not_implemented("category", "/kategoria")
+    """Deep dive into a category. NOT IMPLEMENTED - see TODO.md."""
+    _not_implemented("category", "/category")
 
 
 @app.command()
 def invest() -> None:
-    """Investment plan. NOT IMPLEMENTED — see TODO.md."""
-    _not_implemented("invest", "/inwestycje")
+    """Investment plan. NOT IMPLEMENTED - see TODO.md."""
+    _not_implemented("invest", "/investments")
 
 
 @app.command()
 def goal(name: str = typer.Argument(...)) -> None:
-    """Goal simulation. NOT IMPLEMENTED — see TODO.md."""
-    _not_implemented("goal", "/cel")
+    """Goal simulation. NOT IMPLEMENTED - see TODO.md."""
+    _not_implemented("goal", "/goal")
 
 
 if __name__ == "__main__":

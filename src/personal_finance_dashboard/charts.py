@@ -1,4 +1,4 @@
-"""Charts. Deterministic, ready-made functions — no ad hoc plotting in the CLI."""
+"""Charts. Deterministic, ready-made functions - no ad hoc plotting in the CLI."""
 
 from __future__ import annotations
 
