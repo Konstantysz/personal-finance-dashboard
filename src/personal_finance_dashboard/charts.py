@@ -55,3 +55,35 @@ def plot_top_categories(by_category: pd.Series, out_path: str | Path, top_n: int
     fig.savefig(out_path, dpi=150)
     plt.close(fig)
     return out_path
+
+
+def plot_monthly_categories_stacked(
+    df: pd.DataFrame, out_path: str | Path, top_n: int = 10
+) -> Path:
+    """
+    Stacked bar chart: months on the X axis, expenses by category.
+    Shows only the top N categories; the rest goes into "Inne".
+    """
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if "month" not in df.columns or "category" not in df.columns or "amount" not in df.columns:
+        raise ValueError("DataFrame must have columns: month, category, amount")
+
+    monthly_by_cat = df.groupby(["month", "category"])["amount"].sum().unstack(fill_value=0)
+
+    top_cats = monthly_by_cat.sum().nlargest(top_n).index
+    plot_data = monthly_by_cat[top_cats].copy()
+    if len(monthly_by_cat.columns) > top_n:
+        plot_data["Inne"] = monthly_by_cat.drop(columns=top_cats).sum(axis=1)
+
+    fig, ax = plt.subplots(figsize=(12, 6))
+    plot_data.plot(kind="bar", stacked=True, ax=ax)
+    ax.set_ylabel("PLN")
+    ax.set_xlabel("Month")
+    ax.set_title(f"Monthly expenses (top {top_n} categories)")
+    ax.legend(title="Category", bbox_to_anchor=(1.05, 1), loc="upper left", fontsize=8)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=150)
+    plt.close(fig)
+    return out_path

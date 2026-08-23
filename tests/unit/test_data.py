@@ -177,3 +177,38 @@ def test_average_can_mask_last_month_trend() -> None:
     assert flow["bilans"].mean() < 0  # średnia: deficyt
     assert flow["bilans"].iloc[-1] > 0  # ostatni miesiąc: nadwyżka
     assert "bilans_r3m" in view.columns  # oba widoki dostępne jednocześnie
+
+
+def test_monthly_summary_calculates_category_stats(sample_df: pd.DataFrame) -> None:
+    """monthly_summary returns category statistics and overall stats."""
+    cat_summary, overall = data.monthly_summary(sample_df)
+
+    assert not cat_summary.empty
+    assert "kategoria" in cat_summary.columns
+    assert "srednia" in cat_summary.columns
+    assert "udzial_%" in cat_summary.columns
+
+    assert overall["liczba_miesiecy"] == 3
+    assert overall["srednia_wydatki"] == pytest.approx(2000)  # 6000 total / 3 months
+    assert overall["min_miesiace"] == pytest.approx(2000)
+    assert overall["max_miesiace"] == pytest.approx(2000)
+
+
+def test_monthly_summary_empty_expenses_returns_empty(tmp_path) -> None:
+    """monthly_summary handles an empty dataset without errors."""
+    rows = [
+        _mk_row("PKO", "Wynagrodzenie", 5000, "Przychód", "2025-08-10T00:00:00.000Z"),
+    ]
+    csv_path = tmp_path / "income_only.csv"
+    header = list(rows[0].keys())
+    with csv_path.open("w", encoding="utf-8") as f:
+        f.write(";".join(header) + "\n")
+        for r in rows:
+            f.write(";".join(str(r[k]) for k in header) + "\n")
+
+    df = data.load(csv_path)
+    cat_summary, overall = data.monthly_summary(df)
+
+    assert cat_summary.empty
+    assert overall["liczba_miesiecy"] == 0
+    assert overall["srednia_wydatki"] == 0.0

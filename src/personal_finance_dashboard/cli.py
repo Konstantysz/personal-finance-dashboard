@@ -20,7 +20,11 @@ import pandas as pd
 import typer
 
 from personal_finance_dashboard import data
-from personal_finance_dashboard.charts import plot_monthly_flow, plot_top_categories
+from personal_finance_dashboard.charts import (
+    plot_monthly_categories_stacked,
+    plot_monthly_flow,
+    plot_top_categories,
+)
 
 app = typer.Typer(help="Personal finance analysis - CSV -> report + JSON.")
 
@@ -212,9 +216,84 @@ def _not_implemented(name: str, doc_command: str) -> None:
 
 
 @app.command()
-def monthly() -> None:
-    """Month close. NOT IMPLEMENTED - see TODO.md."""
-    _not_implemented("monthly", "/monthly")
+def monthly(
+    csv_path: Path = typer.Option(DEFAULT_CSV, "--csv"),
+    profile_path: Path = typer.Option(DEFAULT_PROFILE, "--profile"),
+) -> None:
+    """
+    Expense analysis by category: mean/month, min/max, distribution,
+    fixed expense detection.
+    """
+    if not csv_path.exists():
+        _emit({"ok": False, "error": f"Missing file {csv_path}"})
+        raise typer.Exit(code=1)
+    if not profile_path.exists():
+        _emit({"ok": False, "error": f"Missing {profile_path}. Run /profil."})
+        raise typer.Exit(code=1)
+
+    df = data.load(csv_path)
+    profile = data.load_profile(profile_path)
+    windows = data.split_periods(df, profile)
+    active = windows["active"]
+
+    if active.empty:
+        _emit({"ok": False, "error": "No data in the ACTIVE window"})
+        raise typer.Exit(code=1)
+
+    cat_summary, overall = data.monthly_summary(active)
+    fixed_costs = data.detect_fixed_costs(active)
+
+    CHARTS_DIR.mkdir(parents=True, exist_ok=True)
+    stacked_chart = plot_monthly_categories_stacked(
+        active, CHARTS_DIR / "wydatki_kategorie_miesiacz.png"
+    )
+    top_cat_chart = plot_top_categories(
+        active[active["type"] == "Wydatek"].groupby("category")["amount"].sum(),
+        CHARTS_DIR / "wydatki_kategorie_srednia.png",
+    )
+
+    report_lines = [
+        f"# Expense analysis by category — {date.today().isoformat()}",
+        "",
+        "## Overall statistics",
+        f"- Period: {profile['okresy']['regime_change_date']} → present",
+        f"- Number of months: {overall['liczba_miesiecy']}",
+        f"- Average expenses/month: {overall['srednia_wydatki']:.2f} PLN",
+        f"- Min (cheapest month): {overall['min_miesiace']:.2f} PLN",
+        f"- Max (most expensive month): {overall['max_miesiace']:.2f} PLN",
+        f"- Standard deviation: {overall['stdev_miesiace']:.2f} PLN",
+        "",
+        "## Distribution by category",
+        cat_summary.to_markdown(index=False),
+        "",
+    ]
+
+    if not fixed_costs.empty:
+        report_lines += [
+            "## Fixed expenses (candidates)",
+            fixed_costs.to_markdown(index=False),
+            "",
+        ]
+
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+    report_path = REPORTS_DIR / f"miesiaczne_{date.today().isoformat()}.md"
+    report_path.write_text("\n".join(report_lines), encoding="utf-8")
+
+    _emit(
+        {
+            "ok": True,
+            "months": overall["liczba_miesiecy"],
+            "avg_expenses": overall["srednia_wydatki"],
+            "min_month": overall["min_miesiace"],
+            "max_month": overall["max_miesiace"],
+            "stdev": overall["stdev_miesiace"],
+            "categories_count": len(cat_summary),
+            "fixed_costs_candidates": len(fixed_costs),
+            "top_3_categories": cat_summary.head(3)[["kategoria", "srednia"]].to_dict("records"),
+            "report": str(report_path),
+            "charts": [str(stacked_chart), str(top_cat_chart)],
+        }
+    )
 
 
 @app.command()

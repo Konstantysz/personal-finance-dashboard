@@ -347,3 +347,65 @@ def rolling_view(flow: pd.DataFrame, window: int = 3) -> pd.DataFrame:
     r = flow[["przychod", "wydatki", "oszczednosci", "bilans"]].rolling(window).mean()
     r.columns = [f"{c}_r{window}m" for c in r.columns]
     return flow.join(r)
+
+
+def monthly_summary(df: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, Any]]:
+    """
+    Expense statistics by category: mean, min, max, stdev, share %.
+
+    Returns: (DataFrame with categories, dict with overall statistics).
+    """
+    exp = expenses(df).copy()
+    if exp.empty:
+        return pd.DataFrame(
+            columns=["kategoria", "srednia", "min", "max", "stdev", "miesiece", "udzial_%"]
+        ), {
+            "srednia_wydatki": 0.0,
+            "min_miesiace": 0.0,
+            "max_miesiace": 0.0,
+            "stdev_miesiace": 0.0,
+            "liczba_miesiecy": 0,
+        }
+
+    monthly_total = exp.groupby("month")["amount"].sum()
+    if monthly_total.empty:
+        return pd.DataFrame(
+            columns=["kategoria", "srednia", "min", "max", "stdev", "miesiece", "udzial_%"]
+        ), {
+            "srednia_wydatki": 0.0,
+            "min_miesiace": 0.0,
+            "max_miesiace": 0.0,
+            "stdev_miesiace": 0.0,
+            "liczba_miesiecy": 0,
+        }
+
+    total_expenses = exp["amount"].sum()
+    num_months = len(monthly_total)
+
+    categories = []
+    for cat, g in exp.groupby("category"):
+        monthly_cat = g.groupby("month")["amount"].sum()
+        avg = monthly_cat.mean()
+        categories.append(
+            {
+                "kategoria": cat,
+                "srednia": round(avg, 2),
+                "min": round(monthly_cat.min(), 2),
+                "max": round(monthly_cat.max(), 2),
+                "stdev": round(monthly_cat.std(), 2),
+                "miesiece": len(monthly_cat),
+                "udzial_%": round(100.0 * g["amount"].sum() / total_expenses, 2),
+            }
+        )
+
+    df_summary = pd.DataFrame(categories).sort_values("srednia", ascending=False)
+
+    overall = {
+        "srednia_wydatki": round(monthly_total.mean(), 2),
+        "min_miesiace": round(monthly_total.min(), 2),
+        "max_miesiace": round(monthly_total.max(), 2),
+        "stdev_miesiace": round(monthly_total.std(), 2),
+        "liczba_miesiecy": num_months,
+    }
+
+    return df_summary, overall
