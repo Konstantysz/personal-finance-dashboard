@@ -537,6 +537,52 @@ def goal(
         _emit({"ok": False, "error": "CSV, profile, and parameters are required."})
         raise typer.Exit(code=1)
     profile = data.load_profile(profile_path)
+    loans = profile.get("cele", {}).get("pozyczki_wlasne", [])
+    loan = next(
+        (item for item in loans if item.get("nazwa", "").casefold() == name.casefold()), None
+    )
+    if loan:
+        df = data.load(csv_path)
+        try:
+            result = data.self_loan_progress(
+                df, loan, profile.get("konta", {}).get("oszczednosciowe", [])
+            )
+        except (ValueError, KeyError) as exc:
+            _emit({"ok": False, "error": str(exc)})
+            raise typer.Exit(code=2) from exc
+        REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+        report_path = REPORTS_DIR / f"pozyczka_{name}_{date.today().isoformat()}.md"
+        schedule_table = "\n".join(
+            f"| {row['miesiac']} | {row['oczekiwano']} | {row['wplacono']} | {row['status']} |"
+            for row in result["harmonogram"]
+        )
+        report_path.write_text(
+            "# Self-loan repayment progress\n\n"
+            f"Loan: {result['nazwa']}\n"
+            f"Amount: {result['kwota_pozyczki']}\n"
+            f"Source account: {result['konto_zrodlowe']}\n\n"
+            "| Month | Expected | Paid | Status |\n"
+            "|---|---|---|---|\n"
+            f"{schedule_table}\n\n"
+            f"Paid total: {result['splacono_total']}\n"
+            f"Remaining: {result['pozostalo_do_splaty']}\n"
+            f"Overdue installments: {result['raty_zalegle']}\n",
+            encoding="utf-8",
+        )
+        _emit(
+            {
+                "ok": True,
+                "typ": "pozyczka_wlasna",
+                "nazwa": name,
+                "splacono_total": result["splacono_total"],
+                "pozostalo_do_splaty": result["pozostalo_do_splaty"],
+                "raty_zalegle": result["raty_zalegle"],
+                "na_czas": result["na_czas"],
+                "report": str(report_path),
+            }
+        )
+        return
+
     goals = profile.get("cele", {}).get("krotkoterminowe", []) + profile.get("cele", {}).get(
         "dlugoterminowe", []
     )

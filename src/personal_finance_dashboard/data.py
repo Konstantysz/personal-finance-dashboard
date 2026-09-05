@@ -673,6 +673,98 @@ def goal_simulation(
     }
 
 
+def self_loan_progress(
+    df: pd.DataFrame,
+    loan: dict[str, Any],
+    savings_accounts: list[str],
+    today: pd.Period | None = None,
+) -> dict[str, Any]:
+    """Compare a self-loan's repayment schedule against actual transfers.
+
+    A "self-loan" is money withdrawn from a savings account for a purchase,
+    repaid in installments back to the same account. This does not project
+    the future - it reports what actually happened, using the existing
+    transfer-pair audit (`savings()`), against the declared schedule.
+
+    Args:
+        df: Parsed transactions, as returned by `load`.
+        loan: One entry from `cele.pozyczki_wlasne` in the profile. Must
+            contain `konto_zrodlowe`, `kwota`, `rata_miesieczna`,
+            `pierwsza_rata`, `ostatnia_rata`.
+        savings_accounts: `konta.oszczednosciowe` from the profile.
+        today: Reference month deciding which schedule months are past due.
+            Defaults to the current month.
+
+    Returns:
+        Dict with the repayment schedule and progress totals.
+
+    Raises:
+        ValueError: If `konto_zrodlowe` is not a configured savings account.
+    """
+    account = loan["konto_zrodlowe"]
+    if account not in savings_accounts:
+        raise ValueError(f"konto_zrodlowe {account!r} is not listed in konta.oszczednosciowe.")
+
+    current = today or pd.Timestamp.now().to_period("M")
+    installment = float(loan["rata_miesieczna"])
+    schedule_months = pd.period_range(
+        pd.Period(loan["pierwsza_rata"], freq="M"),
+        pd.Period(loan["ostatnia_rata"], freq="M"),
+        freq="M",
+    )
+
+    paid_by_month = savings(df, [account]).groupby("month")["amount"].sum()
+
+    schedule = []
+    paid_total = 0.0
+    overdue = 0
+    for month in schedule_months:
+        paid = float(paid_by_month.get(month, 0.0))
+        paid_total += paid
+        if month > current:
+            status = "przyszly"
+        elif paid >= installment:
+            status = "ok"
+        else:
+            status = "zalegle"
+            overdue += 1
+        schedule.append(
+            {
+                "miesiac": str(month),
+                "oczekiwano": round(installment, 2),
+                "wplacono": round(paid, 2),
+                "status": status,
+            }
+        )
+
+    target = float(loan["kwota"])
+    remaining = max(0.0, target - paid_total)
+    due_so_far = installment * sum(1 for m in schedule_months if m <= current)
+    on_track = paid_total >= due_so_far
+
+    projected_extra_months = None
+    if remaining > 0:
+        months_elapsed = sum(1 for m in schedule_months if m <= current)
+        pace = paid_total / months_elapsed if months_elapsed else 0.0
+        if pace > 0:
+            months_needed = remaining / pace
+            projected_extra_months = max(
+                0, round(months_needed - (len(schedule_months) - months_elapsed))
+            )
+
+    return {
+        "nazwa": loan.get("nazwa"),
+        "kwota_pozyczki": target,
+        "konto_zrodlowe": account,
+        "harmonogram": schedule,
+        "splacono_total": round(paid_total, 2),
+        "pozostalo_do_splaty": round(remaining, 2),
+        "raty_zalegle": overdue,
+        "na_czas": on_track,
+        "przewidywana_dodatkowa_zwloka_miesiecy": projected_extra_months,
+    }
+
+
 def monthly_trends(
     df: pd.DataFrame, savings_accounts: list[str], target_month: pd.Period | str | None = None
 ) -> dict[str, Any]:

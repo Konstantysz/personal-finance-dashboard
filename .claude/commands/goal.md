@@ -46,3 +46,12 @@ Chart: `output/charts/goal_<nazwa>.png` - capital accumulation, three scenarios,
 horizontal goal line, vertical deadline line.
 
 Report: `output/reports/goal_<nazwa>_YYYY-MM-DD.md`.
+
+## Variant: self-loan (pozyczki_wlasne)
+
+If the name matches an entry in `cele.pozyczki_wlasne` instead, `/goal` does
+not project the future - it checks fact: whether installments actually
+arrived in the source savings account per the declared schedule (`kwota`,
+`rata_miesieczna`, `pierwsza_rata`, `ostatnia_rata`). Report overdue
+installments plainly, don't round them away. No chart for this variant -
+report only, table of expected vs paid per month.

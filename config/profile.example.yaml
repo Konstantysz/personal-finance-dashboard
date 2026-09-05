@@ -42,6 +42,17 @@ cele:
     #   termin: 2029-08
     #   priorytet: 1
   dlugoterminowe: []
+  pozyczki_wlasne: []
+    # Money withdrawn from a savings account, repaid in fixed installments
+    # back to that same account. Not a projection - /goal checks it against
+    # actual transfers.
+    # - nazwa: "concert pass 2027"
+    #   kwota: 945
+    #   konto_zrodlowe: "Savings account"   # must be in konta.oszczednosciowe
+    #   data_zaciagniecia: 2026-09-01
+    #   rata_miesieczna: 94.5
+    #   pierwsza_rata: 2026-09
+    #   ostatnia_rata: 2027-07
 
 profil_inwestycyjny:
   tolerancja_ryzyka: null       # niska | srednia | wysoka

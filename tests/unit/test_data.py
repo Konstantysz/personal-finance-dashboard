@@ -594,3 +594,115 @@ def test_monthly_trends_wyplata_mode_reports_okres_od_do(tmp_path: Path) -> None
     assert result["last_month"] == "2026-11"
     assert result["okres_od"] == "2026-11-20"
     assert result["okres_do"] is not None
+
+
+def _loan(**overrides: object) -> dict[str, object]:
+    base: dict[str, object] = {
+        "nazwa": "karnet Opener 2027",
+        "kwota": 945,
+        "konto_zrodlowe": "Konto oszczędnościowe",
+        "rata_miesieczna": 94.5,
+        "pierwsza_rata": "2026-09",
+        "ostatnia_rata": "2027-07",
+    }
+    base.update(overrides)
+    return base
+
+
+def test_self_loan_progress_on_track_when_all_installments_paid(tmp_path: Path) -> None:
+    rows = [
+        _mk_row(
+            "PKO",
+            "Przelew, wypłata",
+            94.5,
+            "Wydatek",
+            f"2026-{month:02d}-05T00:00:00.000Z",
+            True,
+            "rata",
+        )
+        for month in (9,)
+    ] + [
+        _mk_row(
+            "Konto oszczędnościowe",
+            "Przelew, wypłata",
+            94.5,
+            "Przychód",
+            "2026-09-05T00:00:00.000Z",
+            True,
+            "rata",
+        )
+    ]
+    df = data.load(_write_csv(rows, tmp_path / "loan_on_track.csv"))
+
+    result = data.self_loan_progress(
+        df, _loan(), ["Konto oszczędnościowe"], today=pd.Period("2026-09", freq="M")
+    )
+
+    assert result["raty_zalegle"] == 0
+    assert result["na_czas"] is True
+    assert result["splacono_total"] == pytest.approx(94.5)
+    assert result["pozostalo_do_splaty"] == pytest.approx(945 - 94.5)
+
+
+def test_self_loan_progress_flags_overdue_installment(tmp_path: Path) -> None:
+    # Wrzesień: brak wpłaty raty w ogóle.
+    rows = [
+        _mk_row("PKO", "Wynagrodzenie", 5000, "Przychód", "2026-09-10T00:00:00.000Z"),
+    ]
+    df = data.load(_write_csv(rows, tmp_path / "loan_overdue.csv"))
+
+    result = data.self_loan_progress(
+        df, _loan(), ["Konto oszczędnościowe"], today=pd.Period("2026-09", freq="M")
+    )
+
+    assert result["raty_zalegle"] == 1
+    assert result["na_czas"] is False
+    assert result["harmonogram"][0]["status"] == "zalegle"
+
+
+def test_self_loan_progress_future_months_are_not_overdue(tmp_path: Path) -> None:
+    rows = [
+        _mk_row("PKO", "Wynagrodzenie", 5000, "Przychód", "2026-09-10T00:00:00.000Z"),
+    ]
+    df = data.load(_write_csv(rows, tmp_path / "loan_future.csv"))
+
+    result = data.self_loan_progress(
+        df, _loan(), ["Konto oszczędnościowe"], today=pd.Period("2026-09", freq="M")
+    )
+
+    future_statuses = {row["status"] for row in result["harmonogram"][1:]}
+    assert future_statuses == {"przyszly"}
+
+
+def test_self_loan_progress_unrelated_transfer_does_not_count_as_repayment(
+    tmp_path: Path,
+) -> None:
+    """Transfer PKO -> Revolut nie jest spłatą raty na konto oszczędnościowe."""
+    rows = [
+        _mk_row(
+            "PKO", "Przelew, wypłata", 94.5, "Wydatek", "2026-09-05T00:00:00.000Z", True, "rev"
+        ),
+        _mk_row(
+            "Revolut", "Przelew, wypłata", 94.5, "Przychód", "2026-09-05T00:00:00.000Z", True, "rev"
+        ),
+    ]
+    df = data.load(_write_csv(rows, tmp_path / "loan_unrelated_transfer.csv"))
+
+    result = data.self_loan_progress(
+        df, _loan(), ["Konto oszczędnościowe"], today=pd.Period("2026-09", freq="M")
+    )
+
+    assert result["splacono_total"] == pytest.approx(0.0)
+    assert result["raty_zalegle"] == 1
+
+
+def test_self_loan_progress_requires_source_account_to_be_savings_account(
+    tmp_path: Path,
+) -> None:
+    rows = [
+        _mk_row("PKO", "Wynagrodzenie", 5000, "Przychód", "2026-09-10T00:00:00.000Z"),
+    ]
+    df = data.load(_write_csv(rows, tmp_path / "loan_bad_account.csv"))
+
+    with pytest.raises(ValueError):
+        data.self_loan_progress(df, _loan(), ["Inne konto oszczędnościowe"])
