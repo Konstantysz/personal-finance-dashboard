@@ -226,11 +226,10 @@ def _not_implemented(name: str, doc_command: str) -> None:
 def _build_monthly_report(
     trends: dict[str, Any],
 ) -> str:
-    """Build one-page markdown report for monthly close analysis.
+    """Build markdown report for monthly close analysis.
 
     Args:
         trends: Dict from data.monthly_trends().
-        profile: User profile dict.
 
     Returns:
         Markdown report as string.
@@ -240,8 +239,10 @@ def _build_monthly_report(
     trends_data = trends["trends"]
     pct = trends["pct_change"]
     categories = trends["category_changes"]
+    all_cats = trends["all_categories_breakdown"]
     new_cats = trends["new_categories"]
     new_fixed = trends["new_fixed_costs"]
+    fixed_total = trends["fixed_costs_total"]
 
     report_lines = [
         f"# Monthly close — {last_month}",
@@ -255,26 +256,52 @@ def _build_monthly_report(
         "",
         "## Trends (3M / 6M / 12M average)",
         f"- 3M average: {trends_data['wydatki_3m']} PLN "
-        f"({pct.get('vs_3m', 0):+.1f}% vs last month)",
-        f"- 6M average: {trends_data['wydatki_6m']} PLN ({pct.get('vs_6m', 0):+.1f}% vs last month)"
+        f"({pct.get('vs_3m', 0):+.1f}% vs this month)",
+        f"- 6M average: {trends_data['wydatki_6m']} PLN ({pct.get('vs_6m', 0):+.1f}% vs this month)"
         if trends_data["wydatki_6m"]
         else "",
         f"- 12M average: {trends_data['wydatki_12m']} PLN "
-        f"({pct.get('vs_12m', 0):+.1f}% vs last month)"
+        f"({pct.get('vs_12m', 0):+.1f}% vs this month)"
         if trends_data["wydatki_12m"]
         else "",
         "",
-        "## Category changes (vs 3M average)",
+        "## Fixed costs estimate",
+        f"- Estimated fixed costs: **{fixed_total:.2f} PLN**",
+        (
+            f"- % of expenses: {(fixed_total / stats['wydatki'] * 100):.1f}%"
+            if stats["wydatki"] > 0
+            else ""
+        ),
+        "",
+        "## Category breakdown (all categories)",
+        "| Kategoria | Kwota | % wydatków | vs poprzedni | vs 3M | vs 6M | vs 12M |",
+        "|-----------|-------|-----------|--------------|-------|-------|--------|",
     ]
 
+    # Add all categories to table
+    for cat in all_cats:
+        vs_prev = f"{cat['vs_poprzedni']:+.1f}%" if cat["vs_poprzedni"] is not None else "—"
+        vs_3m = f"{cat['vs_3m_srednia']:+.1f}%" if cat["vs_3m_srednia"] is not None else "—"
+        vs_6m = f"{cat['vs_6m_srednia']:+.1f}%" if cat["vs_6m_srednia"] is not None else "—"
+        vs_12m = f"{cat['vs_12m_srednia']:+.1f}%" if cat["vs_12m_srednia"] is not None else "—"
+        report_lines.append(
+            f"| {cat['kategoria']} | {cat['kwota']:.2f} | {cat['procent_wydatkow']:.1f}% | "
+            f"{vs_prev} | {vs_3m} | {vs_6m} | {vs_12m} |"
+        )
+    report_lines.append("")
+
     if categories["up"]:
-        report_lines += ["**Largest increases:**"]
+        report_lines += [
+            "## Top 3 category increases (vs 3M average)",
+        ]
         for item in categories["up"]:
             report_lines.append(f"- {item['kategoria']}: +{item['zmiana']:.2f} PLN")
         report_lines.append("")
 
     if categories["down"]:
-        report_lines += ["**Largest decreases:**"]
+        report_lines += [
+            "## Top 3 category decreases (vs 3M average)",
+        ]
         for item in categories["down"]:
             report_lines.append(f"- {item['kategoria']}: {item['zmiana']:.2f} PLN")
         report_lines.append("")
@@ -314,10 +341,15 @@ def _build_monthly_report(
 def monthly(
     csv_path: Path = typer.Option(DEFAULT_CSV, "--csv"),
     profile_path: Path = typer.Option(DEFAULT_PROFILE, "--profile"),
+    month: str | None = typer.Option(
+        None,
+        "--month",
+        help="Analyze specific month (YYYY-MM). Default: last full month.",
+    ),
 ) -> None:
     """
-    Month close: last full month vs 3M/6M/12M trends.
-    One-page report with category changes and goal progress.
+    Month close: specified month vs 3M/6M/12M trends.
+    Full report with all categories, percentage breakdown, budget planning.
     """
     if not csv_path.exists():
         _emit({"ok": False, "error": f"Missing file {csv_path}"})
@@ -335,7 +367,16 @@ def monthly(
         _emit({"ok": False, "error": "No data in the ACTIVE window"})
         raise typer.Exit(code=1)
 
-    trends = data.monthly_trends(active, profile.get("konta", {}).get("oszczednosciowe", []))
+    try:
+        trends = data.monthly_trends(
+            active,
+            profile.get("konta", {}).get("oszczednosciowe", []),
+            target_month=month,
+        )
+    except ValueError as exc:
+        _emit({"ok": False, "error": str(exc)})
+        raise typer.Exit(code=1) from exc
+
     report_text = _build_monthly_report(trends)
 
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -353,6 +394,7 @@ def monthly(
             "top_3_down": trends["category_changes"]["down"],
             "new_categories": len(trends["new_categories"]),
             "new_fixed_costs": len(trends["new_fixed_costs"]),
+            "fixed_costs_total": trends["fixed_costs_total"],
             "report": str(report_path),
         }
     )

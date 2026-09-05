@@ -5,8 +5,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pandas as pd
-import pytest
 from typer.testing import CliRunner
 
 from personal_finance_dashboard.cli import _build_monthly_report, app
@@ -14,93 +12,115 @@ from personal_finance_dashboard.cli import _build_monthly_report, app
 runner = CliRunner()
 
 
-@pytest.fixture
-def sample_category_stats() -> tuple[pd.DataFrame, dict]:
-    """Create sample category analysis results."""
-    cat_summary = pd.DataFrame(
-        {
-            "kategoria": ["Jedzenie", "Transport"],
-            "srednia": [2000.0, 500.0],
-            "min": [1800.0, 400.0],
-            "max": [2200.0, 600.0],
-            "stdev": [150.0, 80.0],
-            "miesiece": [3, 3],
-            "udzial_%": [80.0, 20.0],
-        }
-    )
-
-    overall = {
-        "srednia_wydatki": 2500.0,
-        "min_miesiace": 2400.0,
-        "max_miesiace": 2600.0,
-        "stdev_miesiace": 80.0,
-        "liczba_miesiecy": 3,
+def test_build_monthly_report_includes_monthly_balance() -> None:
+    """_build_monthly_report includes monthly balance information."""
+    trends = {
+        "last_month": "2026-08",
+        "last_month_stats": {
+            "wydatki": 9525.43,
+            "przychod": 11530.08,
+            "oszczednosci": 0.0,
+            "bilans": 2004.65,
+        },
+        "trends": {
+            "wydatki_3m": 12690.35,
+            "wydatki_6m": None,
+            "wydatki_12m": None,
+        },
+        "pct_change": {"vs_3m": -24.9},
+        "category_changes": {"up": [], "down": []},
+        "all_categories_breakdown": [],
+        "new_categories": [],
+        "new_fixed_costs": [],
+        "fixed_costs_total": 10000.0,
     }
 
-    return cat_summary, overall
+    report = _build_monthly_report(trends)
+
+    assert "2026-08" in report
+    assert "9525.43" in report
 
 
-def test_build_monthly_report_includes_overall_stats(
-    sample_category_stats: tuple[pd.DataFrame, dict]
-) -> None:
-    """_build_monthly_report includes overall statistics."""
-    cat_summary, overall = sample_category_stats
-    fixed_costs = pd.DataFrame(columns=["pozycja", "mediana_miesieczna"])
+def test_build_monthly_report_includes_category_table() -> None:
+    """_build_monthly_report includes category breakdown table."""
+    trends = {
+        "last_month": "2026-08",
+        "last_month_stats": {
+            "wydatki": 1000.0,
+            "przychod": 1000.0,
+            "oszczednosci": 0.0,
+            "bilans": 0.0,
+        },
+        "trends": {"wydatki_3m": 1000.0, "wydatki_6m": None, "wydatki_12m": None},
+        "pct_change": {"vs_3m": 0.0},
+        "category_changes": {"up": [], "down": []},
+        "all_categories_breakdown": [
+            {
+                "kategoria": "Food",
+                "kwota": 500.0,
+                "procent_wydatkow": 50.0,
+                "vs_poprzedni": None,
+                "vs_3m_srednia": 0.0,
+                "vs_6m_srednia": None,
+                "vs_12m_srednia": None,
+            }
+        ],
+        "new_categories": [],
+        "new_fixed_costs": [],
+        "fixed_costs_total": 500.0,
+    }
 
-    profile = {"okresy": {"regime_change_date": "2025-08"}}
+    report = _build_monthly_report(trends)
 
-    report = _build_monthly_report(cat_summary, overall, fixed_costs, profile)
-
-    assert "Expense analysis by category" in report
-    assert "Overall statistics" in report
-    assert "2500.0" in report or "2500" in report
-
-
-def test_build_monthly_report_includes_distribution_table(
-    sample_category_stats: tuple[pd.DataFrame, dict]
-) -> None:
-    """_build_monthly_report includes category distribution table."""
-    cat_summary, overall = sample_category_stats
-    fixed_costs = pd.DataFrame(columns=["pozycja", "mediana_miesieczna"])
-
-    profile = {"okresy": {"regime_change_date": "2025-08"}}
-
-    report = _build_monthly_report(cat_summary, overall, fixed_costs, profile)
-
-    assert "Distribution by category" in report
-    assert "Jedzenie" in report
-
-
-def test_build_monthly_report_includes_fixed_costs_caveat_when_present(
-    sample_category_stats: tuple[pd.DataFrame, dict]
-) -> None:
-    """_build_monthly_report adds disclaimer to fixed costs candidates."""
-    cat_summary, overall = sample_category_stats
-    fixed_costs = pd.DataFrame(
-        {"pozycja": ["Jedzenie | Lidl"], "mediana_miesieczna": [500.0]}
-    )
-
-    profile = {"okresy": {"regime_change_date": "2025-08"}}
-
-    report = _build_monthly_report(cat_summary, overall, fixed_costs, profile)
-
-    assert "Fixed expenses (candidates)" in report
-    assert "heuristic" in report.lower()
-    assert "review and approve" in report
+    assert "Category breakdown" in report
+    assert "Food" in report
 
 
-def test_build_monthly_report_empty_fixed_costs_omits_section(
-    sample_category_stats: tuple[pd.DataFrame, dict]
-) -> None:
-    """_build_monthly_report omits fixed costs section when empty."""
-    cat_summary, overall = sample_category_stats
-    fixed_costs = pd.DataFrame(columns=["pozycja", "mediana_miesieczna"])
+def test_build_monthly_report_includes_fixed_costs() -> None:
+    """_build_monthly_report includes fixed costs estimate."""
+    trends = {
+        "last_month": "2026-08",
+        "last_month_stats": {
+            "wydatki": 10000.0,
+            "przychod": 10000.0,
+            "oszczednosci": 0.0,
+            "bilans": 0.0,
+        },
+        "trends": {"wydatki_3m": 10000.0, "wydatki_6m": None, "wydatki_12m": None},
+        "pct_change": {"vs_3m": 0.0},
+        "category_changes": {"up": [], "down": []},
+        "all_categories_breakdown": [],
+        "new_categories": [],
+        "new_fixed_costs": [
+            {"pozycja": "Rent", "mediana_miesieczna": 5000.0, "miesiecy": 3, "stabilnych": 3}
+        ],
+        "fixed_costs_total": 5000.0,
+    }
 
-    profile = {"okresy": {"regime_change_date": "2025-08"}}
+    report = _build_monthly_report(trends)
 
-    report = _build_monthly_report(cat_summary, overall, fixed_costs, profile)
+    assert "Fixed costs estimate" in report
+    assert "5000.0" in report
 
-    assert "Fixed expenses" not in report
+
+def test_build_monthly_report_minimal_data() -> None:
+    """_build_monthly_report works with minimal required data."""
+    trends = {
+        "last_month": "2026-08",
+        "last_month_stats": {"wydatki": 0.0, "przychod": 0.0, "oszczednosci": 0.0, "bilans": 0.0},
+        "trends": {"wydatki_3m": None, "wydatki_6m": None, "wydatki_12m": None},
+        "pct_change": {},
+        "category_changes": {"up": [], "down": []},
+        "all_categories_breakdown": [],
+        "new_categories": [],
+        "new_fixed_costs": [],
+        "fixed_costs_total": 0.0,
+    }
+
+    report = _build_monthly_report(trends)
+
+    assert "2026-08" in report
+    assert "Monthly close" in report
 
 
 def test_monthly_command_missing_csv_returns_error(tmp_path: Path) -> None:

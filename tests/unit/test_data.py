@@ -363,6 +363,69 @@ def test_monthly_trends_single_month_works(tmp_path: Path) -> None:
     assert result["trends"]["wydatki_3m"] is None
 
 
+def _write_csv(rows: list[dict[str, object]], path: Path) -> Path:
+    header = list(rows[0].keys())
+    with path.open("w", encoding="utf-8") as f:
+        f.write(";".join(header) + "\n")
+        for r in rows:
+            f.write(";".join(str(r[k]) for k in header) + "\n")
+    return path
+
+
+def test_monthly_flow_excludes_incomplete_current_month(tmp_path: Path) -> None:
+    """
+    Błąd 4: bieżący, niedokończony miesiąc liczony jak pełny.
+
+    Wypłata wpływa 21. dnia miesiąca, więc analiza uruchomiona 5. dnia widzi
+    wydatki bez odpowiadającego im przychodu. Wciągnięcie takiego miesiąca do
+    średnich zaniża je tym mocniej, im wcześniej w miesiącu ją uruchomiono.
+    """
+    rows = [
+        _mk_row("PKO", "Wynagrodzenie", 5000, "Przychód", "2026-07-21T00:00:00.000Z"),
+        _mk_row("PKO", "Zakupy", 1000, "Wydatek", "2026-07-25T00:00:00.000Z"),
+        _mk_row("PKO", "Wynagrodzenie", 5000, "Przychód", "2026-08-21T00:00:00.000Z"),
+        _mk_row("PKO", "Zakupy", 1000, "Wydatek", "2026-08-25T00:00:00.000Z"),
+        # Bieżący miesiąc: same wydatki, wypłata (21.09) jeszcze nie wpłynęła.
+        _mk_row("PKO", "Zakupy", 900, "Wydatek", "2026-09-03T00:00:00.000Z"),
+    ]
+    df = data.load(_write_csv(rows, tmp_path / "incomplete.csv"))
+
+    flow = data.monthly_flow(df, ["Konto oszczędnościowe"], today=pd.Timestamp("2026-09-05"))
+
+    assert pd.Period("2026-09", freq="M") not in flow.index
+    assert flow.index.max() == pd.Period("2026-08", freq="M")
+    # Średnia bilansu liczona wyłącznie z pełnych miesięcy: (5000-1000) = 4000.
+    assert flow["bilans"].mean() == pytest.approx(4000.0)
+
+
+def test_monthly_flow_keeps_finished_month(tmp_path: Path) -> None:
+    """Miesiąc, który już się skończył, zostaje — nawet jeśli jest ostatni."""
+    rows = [
+        _mk_row("PKO", "Wynagrodzenie", 5000, "Przychód", "2026-08-21T00:00:00.000Z"),
+        _mk_row("PKO", "Zakupy", 1000, "Wydatek", "2026-08-25T00:00:00.000Z"),
+    ]
+    df = data.load(_write_csv(rows, tmp_path / "finished.csv"))
+
+    flow = data.monthly_flow(df, ["Konto oszczędnościowe"], today=pd.Timestamp("2026-09-05"))
+
+    assert pd.Period("2026-08", freq="M") in flow.index
+
+
+def test_monthly_flow_incomplete_month_available_on_demand(tmp_path: Path) -> None:
+    """Niepełny miesiąc da się odzyskać jawnie — nie znika z danych na stałe."""
+    rows = [
+        _mk_row("PKO", "Wynagrodzenie", 5000, "Przychód", "2026-08-21T00:00:00.000Z"),
+        _mk_row("PKO", "Zakupy", 900, "Wydatek", "2026-09-03T00:00:00.000Z"),
+    ]
+    df = data.load(_write_csv(rows, tmp_path / "ondemand.csv"))
+
+    flow = data.monthly_flow(
+        df, ["Konto oszczędnościowe"], today=pd.Timestamp("2026-09-05"), drop_incomplete=False
+    )
+
+    assert pd.Period("2026-09", freq="M") in flow.index
+
+
 def test_tax_calculation_requires_explicit_profile_fields() -> None:
     with pytest.raises(ValueError, match="forma_zatrudnienia"):
         data.tax_calculation({}, {"konta_emerytalne": {}}, today=pd.Timestamp("2026-08-23"))

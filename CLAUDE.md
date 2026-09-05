@@ -27,6 +27,17 @@ something the JSON does not cover.
 
 Implemented: `validate`, `analyze`, `monthly`, `category`, `invest`, `taxes`, `goal`.
 
+## Updating data/raw/wallet_export.csv
+
+`data.py` reads a single CSV path (`data.py:32`) - it does not merge multiple
+files. When new entries appear in Budget Bakers: export the **full history**
+(not a diff/delta) and overwrite `data/raw/wallet_export.csv` wholesale, then
+run `validate`. This keeps the file a single deterministic source of truth -
+no merge logic, no risk of duplicate/missed transactions from overlapping
+partial exports. Every analysis and report reflects whatever full export was
+last placed there; if asked when data was last refreshed, check the file's
+mtime or ask the user, do not assume.
+
 ## Structure
 
 - `src/personal_finance_dashboard/data.py` - parsing, transfers, time windows, fixed costs
