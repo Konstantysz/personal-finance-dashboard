@@ -235,6 +235,8 @@ def _build_monthly_report(
         Markdown report as string.
     """
     last_month = trends["last_month"]
+    okres_od = trends.get("okres_od")
+    okres_do = trends.get("okres_do")
     stats = trends["last_month_stats"]
     trends_data = trends["trends"]
     pct = trends["pct_change"]
@@ -244,8 +246,12 @@ def _build_monthly_report(
     new_fixed = trends["new_fixed_costs"]
     fixed_total = trends["fixed_costs_total"]
 
+    title = f"# Monthly close — {last_month}"
+    if okres_od and okres_do:
+        title += f" ({okres_od} - {okres_do})"
+
     report_lines = [
-        f"# Monthly close — {last_month}",
+        title,
         "",
         "## Last month balance",
         f"- Expenses: **{stats['wydatki']:.2f} PLN**",
@@ -387,6 +393,8 @@ def monthly(
         {
             "ok": True,
             "last_month": trends["last_month"],
+            "okres_od": trends.get("okres_od"),
+            "okres_do": trends.get("okres_do"),
             "last_month_balance": trends["last_month_stats"]["bilans"],
             "pct_vs_3m": trends["pct_change"].get("vs_3m"),
             "pct_vs_12m": trends["pct_change"].get("vs_12m"),

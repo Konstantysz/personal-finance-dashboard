@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+import holidays
 import pandas as pd
 import yaml
 
@@ -166,13 +167,106 @@ def load_profile(path: str | Path = "config/profile.yaml") -> dict[str, Any]:
     return data
 
 
+def _preceding_workday(day: Any, country_holidays: holidays.HolidayBase) -> Any:
+    """Walks a date backwards to the nearest weekday that is not a PL holiday."""
+    while day.weekday() >= 5 or day in country_holidays:
+        day = day - pd.Timedelta(days=1)
+    return day
+
+
+def _payday_boundaries(start: pd.Timestamp, end: pd.Timestamp, payday: int) -> list[pd.Timestamp]:
+    """Actual (workday-shifted) payday dates covering [start, end], one per calendar month.
+
+    Pads one month before `start` and one after `end` so every transaction in
+    range falls strictly between two known boundaries.
+    """
+    country_holidays = holidays.Poland(years=range(start.year - 1, end.year + 2))  # type: ignore[attr-defined]
+    months = pd.period_range(start.to_period("M") - 1, end.to_period("M") + 1, freq="M")
+    boundaries = []
+    for period in months:
+        candidate = pd.Timestamp(year=period.year, month=period.month, day=payday)
+        boundaries.append(_preceding_workday(candidate, country_holidays))
+    return sorted(boundaries)
+
+
+def assign_periods(
+    df: pd.DataFrame,
+    mode: str = "kalendarzowy",
+    payday: int | None = None,
+) -> pd.DataFrame:
+    """Returns a copy of `df` with `month` (and, in payday mode, `month_start`/`month_end`).
+
+    `mode="kalendarzowy"` reproduces the current calendar-month bucketing
+    (`.dt.to_period("M")`) unchanged. `mode="wyplata"` buckets each
+    transaction into the payday-to-payday window it falls in, so income
+    concentrated on payday stays grouped with the expenses it is meant to
+    cover even when the calendar month boundary would otherwise split them.
+    The window boundary shifts to the preceding Polish workday whenever the
+    payday date falls on a weekend or public holiday, and the window is
+    labeled by the `pd.Period` of its start month.
+
+    Args:
+        df: Parsed transactions, as returned by `load`.
+        mode: "kalendarzowy" (default) or "wyplata".
+        payday: Day of month income is expected to arrive. Required when
+            `mode="wyplata"`.
+
+    Returns:
+        Copy of `df` with `month` reassigned (and `month_start`/`month_end`
+        added in "wyplata" mode).
+
+    Raises:
+        ValueError: If `mode` is unrecognized, or `mode="wyplata"` without `payday`.
+    """
+    if mode == "kalendarzowy":
+        out = df.copy()
+        out["month"] = out["date"].dt.to_period("M")
+        return out
+
+    if mode != "wyplata":
+        raise ValueError(f"Unknown tryb_okresu: {mode!r}. Expected 'kalendarzowy' or 'wyplata'.")
+    if payday is None:
+        raise ValueError("payday is required when mode='wyplata'.")
+    if df.empty:
+        out = df.copy()
+        out["month"] = out["date"].dt.to_period("M")
+        out["month_start"] = out["date"]
+        out["month_end"] = out["date"]
+        return out
+
+    boundaries = _payday_boundaries(df["date"].min(), df["date"].max(), payday)
+    bin_labels = list(range(len(boundaries) - 1))
+    bin_index = pd.cut(
+        df["date"], bins=boundaries, labels=bin_labels, right=False, include_lowest=True
+    )
+
+    out = df.copy()
+    starts = bin_index.map(lambda i: boundaries[int(i)])
+    ends = bin_index.map(lambda i: boundaries[int(i) + 1] - pd.Timedelta(days=1))
+    out["month_start"] = starts
+    out["month_end"] = ends
+    out["month"] = starts.dt.to_period("M")
+    return out
+
+
 def split_periods(df: pd.DataFrame, profile: dict[str, Any]) -> dict[str, pd.DataFrame]:
     """
     Returns windows: archive / active / recent / all.
 
     ACTIVE is the default window for EVERY budget analysis. ARCHIVE serves only
     for seasonality, basket inflation, and history - not for average expenses.
+
+    When `profile["osoba"]["tryb_okresu"] == "wyplata"`, transactions are
+    rebucketed into payday-to-payday windows via `assign_periods` before the
+    archive/active/recent split, using `profile["osoba"]["dzien_wyplaty"]`.
+    Default (absent or "kalendarzowy") keeps the existing calendar-month
+    bucketing untouched.
     """
+    tryb_okresu = profile.get("osoba", {}).get("tryb_okresu", "kalendarzowy")
+    if tryb_okresu == "wyplata":
+        payday = profile["osoba"]["dzien_wyplaty"]
+        df = assign_periods(df, mode="wyplata", payday=payday)
+
     change = pd.Timestamp(profile["okresy"]["regime_change_date"])
 
     active = df[df["date"] >= change]
@@ -592,6 +686,8 @@ def monthly_trends(
 
     Returns dict with:
     - last_month: Period of analyzed month
+    - okres_od / okres_do: actual start/end date of the month (payday-mode only,
+      None under calendar mode)
     - last_month_stats: expenses, income, savings, balance for analyzed month
     - trends: 3M, 6M, 12M average expenses
     - pct_change: % change vs 3M/6M/12M averages
@@ -621,6 +717,14 @@ def monthly_trends(
         last_month = target_month
 
     last_month_data = flow.loc[last_month]
+
+    okres_od: str | None = None
+    okres_do: str | None = None
+    if "month_start" in df.columns:
+        month_rows = df[df["month"] == last_month]
+        if not month_rows.empty:
+            okres_od = str(month_rows["month_start"].iloc[0].date())
+            okres_do = str(month_rows["month_end"].iloc[0].date())
 
     # Trends: 3M, 6M, 12M averages
     trend_3m = flow.iloc[-3:]["wydatki"].mean() if len(flow) >= 3 else None
@@ -756,6 +860,8 @@ def monthly_trends(
 
     return {
         "last_month": str(last_month),
+        "okres_od": okres_od,
+        "okres_do": okres_do,
         "last_month_stats": {
             "wydatki": round(float(last_month_data["wydatki"]), 2),
             "przychod": round(float(last_month_data["przychod"]), 2),

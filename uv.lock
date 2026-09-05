@@ -489,58 +489,6 @@ wheels = [
 ]
 
 [[package]]
-name = "personal_finance_dashboard"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "matplotlib" },
-    { name = "pandas" },
-    { name = "pydantic-settings" },
-    { name = "pyyaml" },
-    { name = "rich" },
-    { name = "tabulate" },
-    { name = "typer" },
-]
-
-[package.optional-dependencies]
-dev = [
-    { name = "mypy" },
-    { name = "pandas-stubs" },
-    { name = "pre-commit" },
-    { name = "pytest" },
-    { name = "pytest-cov" },
-    { name = "pytest-xdist" },
-    { name = "ruff" },
-    { name = "types-pyyaml" },
-]
-docs = [
-    { name = "mkdocs-material" },
-    { name = "mkdocstrings", extra = ["python"] },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "matplotlib", specifier = ">=3.7" },
-    { name = "mkdocs-material", marker = "extra == 'docs'" },
-    { name = "mkdocstrings", extras = ["python"], marker = "extra == 'docs'" },
-    { name = "mypy", marker = "extra == 'dev'" },
-    { name = "pandas", specifier = ">=2.0" },
-    { name = "pandas-stubs", marker = "extra == 'dev'" },
-    { name = "pre-commit", marker = "extra == 'dev'" },
-    { name = "pydantic-settings", specifier = ">=2.0" },
-    { name = "pytest", marker = "extra == 'dev'" },
-    { name = "pytest-cov", marker = "extra == 'dev'" },
-    { name = "pytest-xdist", marker = "extra == 'dev'" },
-    { name = "pyyaml", specifier = ">=6.0" },
-    { name = "rich", specifier = ">=13.0" },
-    { name = "ruff", marker = "extra == 'dev'" },
-    { name = "tabulate", specifier = ">=0.9" },
-    { name = "typer", specifier = ">=0.12" },
-    { name = "types-pyyaml", marker = "extra == 'dev'" },
-]
-provides-extras = ["dev", "docs"]
-
-[[package]]
 name = "fonttools"
 version = "4.63.0"
 source = { registry = "https://pypi.org/simple" }
@@ -600,6 +548,18 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/f0/b4/a767e91c606deefc447a96eaf59edd77397960b1d677dffd833ee8449831/griffelib-2.2.0.tar.gz", hash = "sha256:e1bc36fe9cd21d4b6b659b456346755e4cfdc5676c0a5214083126ee12612b3c", size = 227048, upload-time = "2026-08-16T14:04:58.383Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/f6/b6/f65ac785d4ac90dcf7c831ac6256f5dd4a19780f4e1575b2c0d6eeebe319/griffelib-2.2.0-py3-none-any.whl", hash = "sha256:d71c3bc2bbed9f958488634fe788b843a9f705d6d2838ca32cd6c25eeb64dfc4", size = 166779, upload-time = "2026-08-16T14:04:54.365Z" },
+]
+
+[[package]]
+name = "holidays"
+version = "0.103"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "python-dateutil" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/74/7f/5f740e8d6702c8524877dfdd3b7cd6825f09d0597e1610cc813a8b47c737/holidays-0.103.tar.gz", hash = "sha256:688a3cf0e10f46627039b778da4c962ecd5d9695610e80893c611dea931b6c91", size = 988261, upload-time = "2026-08-17T19:32:19.717Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ca/64/69565fc485b56a6d8726d7d1a8ca74b6025faab5d31671d264e26ed5cc85/holidays-0.103-py3-none-any.whl", hash = "sha256:d507f7f64379ed5a782b8a4a83fb99705f8c538c7cf4c70079ceb0a3e0447cc9", size = 1581726, upload-time = "2026-08-17T19:32:17.705Z" },
 ]
 
 [[package]]
@@ -1332,6 +1292,60 @@ sdist = { url = "https://files.pythonhosted.org/packages/5a/82/42f767fc1c1143d6f
 wheels = [
     { url = "https://files.pythonhosted.org/packages/f1/d9/7fb5aa316bc299258e68c73ba3bddbc499654a07f151cba08f6153988714/pathspec-1.1.1-py3-none-any.whl", hash = "sha256:a00ce642f577bf7f473932318056212bc4f8bfdf53128c78bbd5af0b9b20b189", size = 57328, upload-time = "2026-04-27T01:46:07.06Z" },
 ]
+
+[[package]]
+name = "personal-finance-dashboard"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "holidays" },
+    { name = "matplotlib" },
+    { name = "pandas" },
+    { name = "pydantic-settings" },
+    { name = "pyyaml" },
+    { name = "rich" },
+    { name = "tabulate" },
+    { name = "typer" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "mypy" },
+    { name = "pandas-stubs" },
+    { name = "pre-commit" },
+    { name = "pytest" },
+    { name = "pytest-cov" },
+    { name = "pytest-xdist" },
+    { name = "ruff" },
+    { name = "types-pyyaml" },
+]
+docs = [
+    { name = "mkdocs-material" },
+    { name = "mkdocstrings", extra = ["python"] },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "holidays", specifier = ">=0.103" },
+    { name = "matplotlib", specifier = ">=3.7" },
+    { name = "mkdocs-material", marker = "extra == 'docs'" },
+    { name = "mkdocstrings", extras = ["python"], marker = "extra == 'docs'" },
+    { name = "mypy", marker = "extra == 'dev'" },
+    { name = "pandas", specifier = ">=2.0" },
+    { name = "pandas-stubs", marker = "extra == 'dev'" },
+    { name = "pre-commit", marker = "extra == 'dev'" },
+    { name = "pydantic-settings", specifier = ">=2.0" },
+    { name = "pytest", marker = "extra == 'dev'" },
+    { name = "pytest-cov", marker = "extra == 'dev'" },
+    { name = "pytest-xdist", marker = "extra == 'dev'" },
+    { name = "pyyaml", specifier = ">=6.0" },
+    { name = "rich", specifier = ">=13.0" },
+    { name = "ruff", marker = "extra == 'dev'" },
+    { name = "tabulate", specifier = ">=0.9" },
+    { name = "typer", specifier = ">=0.12" },
+    { name = "types-pyyaml", marker = "extra == 'dev'" },
+]
+provides-extras = ["dev", "docs"]
 
 [[package]]
 name = "pillow"

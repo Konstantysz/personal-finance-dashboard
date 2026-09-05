@@ -12,6 +12,8 @@ osoba:
   dochod_netto_miesiecznie: null
   dochod_stabilny: null         # true | false
   dzien_wyplaty: null           # day of month, detected from data and confirmed
+  dzien_wyplaty_przesuniecie: poprzedzajacy_dzien_roboczy  # shift rule when dzien_wyplaty falls on a weekend/holiday
+  tryb_okresu: kalendarzowy     # kalendarzowy (default) | wyplata - bucket months by payday-to-payday cycle instead of calendar month
 
 # --- Period division. The most important section of the file. -----------------
 okresy:

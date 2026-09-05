@@ -429,3 +429,168 @@ def test_monthly_flow_incomplete_month_available_on_demand(tmp_path: Path) -> No
 def test_tax_calculation_requires_explicit_profile_fields() -> None:
     with pytest.raises(ValueError, match="forma_zatrudnienia"):
         data.tax_calculation({}, {"konta_emerytalne": {}}, today=pd.Timestamp("2026-08-23"))
+
+
+# --------------------------------------------------------------------------
+# assign_periods - okres rozliczeniowy wypłata-do-wypłaty (opcja B)
+# --------------------------------------------------------------------------
+
+
+def test_assign_periods_kalendarzowy_matches_dt_to_period(sample_df: pd.DataFrame) -> None:
+    """Tryb domyślny/kalendarzowy = identyczny wynik jak dzisiejsze .dt.to_period('M')."""
+    out = data.assign_periods(sample_df, mode="kalendarzowy")
+    expected = sample_df["date"].dt.to_period("M")
+    pd.testing.assert_series_equal(out["month"], expected, check_names=False)
+
+
+def test_assign_periods_weekday_payday_matches_calendar(tmp_path: Path) -> None:
+    """21. dzień miesiąca wypadający w zwykły dzień roboczy = brak przesunięcia."""
+    # 2026-01-21 to środa (zwykły dzień roboczy, brak święta).
+    rows = [
+        _mk_row("PKO", "Wynagrodzenie", 5000, "Przychód", "2026-01-21T00:00:00.000Z"),
+        _mk_row("PKO", "Zakupy", 1000, "Wydatek", "2026-01-25T00:00:00.000Z"),
+    ]
+    df = data.load(_write_csv(rows, tmp_path / "weekday_payday.csv"))
+    out = data.assign_periods(df, mode="wyplata", payday=21)
+    assert (out["month"] == pd.Period("2026-01", freq="M")).all()
+
+
+def _month_on(out: pd.DataFrame, date_str: str) -> pd.Period:
+    return out.loc[out["date"].dt.date == pd.Timestamp(date_str).date(), "month"].iloc[0]
+
+
+def test_assign_periods_saturday_payday_shifts_to_friday(tmp_path: Path) -> None:
+    """21. wypada w sobotę (2026-11-21) -> granica przesunięta na piątek 2026-11-20."""
+    rows = [
+        _mk_row("PKO", "Zakupy", 1000, "Wydatek", "2026-11-19T00:00:00.000Z"),  # przed granicą
+        _mk_row("PKO", "Wynagrodzenie", 5000, "Przychód", "2026-11-20T00:00:00.000Z"),  # granica
+    ]
+    df = data.load(_write_csv(rows, tmp_path / "saturday_payday.csv"))
+    out = data.assign_periods(df, mode="wyplata", payday=21)
+    assert _month_on(out, "2026-11-19") == pd.Period("2026-10", freq="M")
+    assert _month_on(out, "2026-11-20") == pd.Period("2026-11", freq="M")
+
+
+def test_assign_periods_sunday_payday_shifts_to_friday_not_saturday(tmp_path: Path) -> None:
+    """21. wypada w niedzielę (2026-06-21) -> granica na piątek 2026-06-19, nie sobotę."""
+    rows = [
+        _mk_row("PKO", "Zakupy", 1000, "Wydatek", "2026-06-18T00:00:00.000Z"),  # przed granicą
+        _mk_row("PKO", "Wynagrodzenie", 5000, "Przychód", "2026-06-19T00:00:00.000Z"),  # granica
+    ]
+    df = data.load(_write_csv(rows, tmp_path / "sunday_payday.csv"))
+    out = data.assign_periods(df, mode="wyplata", payday=21)
+    assert _month_on(out, "2026-06-18") == pd.Period("2026-05", freq="M")
+    assert _month_on(out, "2026-06-19") == pd.Period("2026-06", freq="M")
+
+
+def test_assign_periods_holiday_and_weekend_walks_back_to_workday(tmp_path: Path) -> None:
+    """
+    21.04.2025 to Poniedziałek Wielkanocny (święto), 20.04 niedziela (też
+    Wielkanoc), 19.04 sobota - granica musi cofnąć się aż do piątku 18.04,
+    jedynego dnia roboczego w tym ciągu.
+    """
+    rows = [
+        _mk_row("PKO", "Wynagrodzenie", 5000, "Przychód", "2025-04-18T00:00:00.000Z"),
+        _mk_row("PKO", "Zakupy", 1000, "Wydatek", "2025-04-19T00:00:00.000Z"),
+        _mk_row("PKO", "Zakupy", 500, "Wydatek", "2025-04-20T00:00:00.000Z"),
+        _mk_row("PKO", "Zakupy", 300, "Wydatek", "2025-04-21T00:00:00.000Z"),
+    ]
+    df = data.load(_write_csv(rows, tmp_path / "holiday_payday.csv"))
+    out = data.assign_periods(df, mode="wyplata", payday=21)
+    assert (out["month"] == pd.Period("2025-04", freq="M")).all()
+
+
+def test_assign_periods_year_rollover(tmp_path: Path) -> None:
+    """Grudzień -> styczeń: granica i etykieta okresu przechodzą przez rok bez błędu."""
+    rows = [
+        _mk_row("PKO", "Wynagrodzenie", 5000, "Przychód", "2025-12-19T00:00:00.000Z"),
+        _mk_row("PKO", "Zakupy", 1000, "Wydatek", "2025-12-30T00:00:00.000Z"),
+        _mk_row("PKO", "Wynagrodzenie", 5000, "Przychód", "2026-01-21T00:00:00.000Z"),
+        _mk_row("PKO", "Zakupy", 1000, "Wydatek", "2026-01-25T00:00:00.000Z"),
+    ]
+    df = data.load(_write_csv(rows, tmp_path / "year_rollover.csv"))
+    out = data.assign_periods(df, mode="wyplata", payday=21)
+    # 2025-12-21 to niedziela -> granica na piątek 2025-12-19.
+    assert _month_on(out, "2025-12-19") == pd.Period("2025-12", freq="M")
+    assert _month_on(out, "2025-12-30") == pd.Period("2025-12", freq="M")
+    assert _month_on(out, "2026-01-21") == pd.Period("2026-01", freq="M")
+
+
+def test_assign_periods_boundary_date_starts_new_window(tmp_path: Path) -> None:
+    """Transakcja dokładnie w dniu przesuniętej granicy należy do NOWEGO okresu."""
+    rows = [
+        _mk_row("PKO", "Zakupy", 100, "Wydatek", "2026-11-19T00:00:00.000Z"),  # dzień przed granicą
+        _mk_row("PKO", "Wynagrodzenie", 5000, "Przychód", "2026-11-20T00:00:00.000Z"),  # granica
+    ]
+    df = data.load(_write_csv(rows, tmp_path / "boundary_inclusive.csv"))
+    out = data.assign_periods(df, mode="wyplata", payday=21)
+    assert _month_on(out, "2026-11-19") == pd.Period("2026-10", freq="M")
+    assert _month_on(out, "2026-11-20") == pd.Period("2026-11", freq="M")
+
+
+def test_split_periods_wyplata_mode_rebuckets_around_payday(tmp_path: Path) -> None:
+    """
+    split_periods w trybie 'wyplata' łączy wypłatę z wydatkami z tego samego
+    cyklu, nawet gdy kalendarzowo znalazłyby się w różnych miesiącach - to
+    strukturalna naprawa błędu, dla którego powstaje cała ta zmiana.
+
+    Wypłata za grudzień wpływa 19.12.2025 (piątek, bo 21.12 to niedziela) i
+    otwiera cykl "2025-12". Wydatek z 20.12 jest kalendarzowo też grudniowy,
+    ale wydatek z 30.11 (kalendarzowo listopad) w trybie kalendarzowym
+    trafiłby do innego miesiąca niż ta sama wypłata - w trybie 'wyplata'
+    30.11 nadal należy do POPRZEDNIEGO cyklu ("2025-11"), bo cykl grudniowy
+    zaczyna się dopiero 19.12. Test dokumentuje więc, że granica realnie się
+    przesuwa, nie że wszystko ląduje w jednym worku.
+    """
+    rows = [
+        _mk_row("PKO", "Wynagrodzenie", 5000, "Przychód", "2025-11-21T00:00:00.000Z"),
+        _mk_row("PKO", "Zakupy", 400, "Wydatek", "2025-11-30T00:00:00.000Z"),
+        _mk_row("PKO", "Wynagrodzenie", 5000, "Przychód", "2025-12-19T00:00:00.000Z"),
+        _mk_row("PKO", "Zakupy", 800, "Wydatek", "2025-12-20T00:00:00.000Z"),
+    ]
+    df = data.load(_write_csv(rows, tmp_path / "split_wyplata.csv"))
+    profile = {
+        "osoba": {"tryb_okresu": "wyplata", "dzien_wyplaty": 21},
+        "okresy": {"regime_change_date": "2020-01-01"},
+    }
+    windows = data.split_periods(df, profile)
+    active = windows["active"]
+    flow = data.monthly_flow(active, ["Konto oszczędnościowe"], drop_incomplete=False)
+
+    nov = flow.loc[pd.Period("2025-11", freq="M")]
+    dec = flow.loc[pd.Period("2025-12", freq="M")]
+    assert nov["przychod"] == pytest.approx(5000)
+    assert nov["wydatki"] == pytest.approx(400)  # 30.11 wciąż w cyklu listopadowym
+    assert dec["przychod"] == pytest.approx(5000)
+    assert dec["wydatki"] == pytest.approx(800)  # 20.12, po przesuniętej granicy 19.12
+
+
+def test_split_periods_kalendarzowy_default_unchanged(sample_df: pd.DataFrame) -> None:
+    """Brak tryb_okresu w profilu = zachowanie identyczne z dotychczasowym."""
+    profile = {"okresy": {"regime_change_date": "2020-01-01"}}
+    windows = data.split_periods(sample_df, profile)
+    expected_months = sample_df["date"].dt.to_period("M")
+    pd.testing.assert_series_equal(
+        windows["active"]["month"].reset_index(drop=True),
+        expected_months.reset_index(drop=True),
+        check_names=False,
+    )
+
+
+def test_monthly_trends_wyplata_mode_reports_okres_od_do(tmp_path: Path) -> None:
+    """monthly_trends w trybie 'wyplata' dorzuca realne granice okresu do wyniku."""
+    rows = [
+        _mk_row("PKO", "Wynagrodzenie", 5000, "Przychód", "2026-11-20T00:00:00.000Z"),
+        _mk_row("PKO", "Zakupy", 1000, "Wydatek", "2026-11-25T00:00:00.000Z"),
+    ]
+    df = data.load(_write_csv(rows, tmp_path / "trends_wyplata.csv"))
+    profile = {
+        "osoba": {"tryb_okresu": "wyplata", "dzien_wyplaty": 21},
+        "okresy": {"regime_change_date": "2020-01-01"},
+    }
+    active = data.split_periods(df, profile)["active"]
+    result = data.monthly_trends(active, ["Konto oszczędnościowe"])
+
+    assert result["last_month"] == "2026-11"
+    assert result["okres_od"] == "2026-11-20"
+    assert result["okres_do"] is not None

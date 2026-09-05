@@ -58,6 +58,19 @@ calculates only on the ACTIVE window. If the user asks about something from the
 entire history or about seasonality - this is an exception; say explicitly
 which window you are using.
 
+## Period mode: calendar vs payday
+
+`config/profile.yaml` key `osoba.tryb_okresu`: `kalendarzowy` (default) or
+`wyplata`. Default = current calendar-month bucketing, unchanged.
+`wyplata` rebuckets every transaction into a payday-to-payday window using
+`osoba.dzien_wyplaty` (day of month) — boundary shifts to the preceding
+Polish workday when payday lands on a weekend/holiday (`holidays` package).
+Single point of truth: `data.assign_periods()`, wired into `split_periods()`.
+`monthly_trends()` returns `okres_od`/`okres_do` (real boundary dates) only
+in `wyplata` mode — `None` under `kalendarzowy`. Old reports and
+`detect_fixed_costs`/seasonality numbers are NOT comparable across the two
+modes near month boundaries — this is expected, not a bug.
+
 ## Accounts and savings
 
 Savings are exclusively deposits to accounts listed in
@@ -87,4 +100,11 @@ scenarios (conservative / base), never as a single number.
   `config/`, `output/` are data, not code - this is not an exception to discuss.
 - Secrets in `.env`, never in the repo.
 - New function in `data.py` = test in `tests/unit/test_data.py`.
-- Format with `ruff`. `mypy --strict` must pass on `src/` before commit.
+- Format with `ruff`.
+- `mypy --strict` must pass on `src/` before commit.
+- Use `Optional` instead of `| None` unless newer code requires it.
+- Avoid global imports that slow down startup.
+
+## Commit messages
+
+- Write commit messages as short sentences in the imperative mood. Start with a capital letter and do not end with a period.
