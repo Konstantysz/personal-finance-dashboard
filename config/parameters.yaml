@@ -25,9 +25,6 @@ konta_emerytalne:
 # --- Taxes --------------------------------------------------------------------
 podatki:
   belka: 0.19
-  pit_prog_1: 0.12
-  pit_prog_2: 0.32
-  pit_prog_2_od: 120000.00
 
 # --- Retail bonds -------------------------------------------------------------
 # Source: obligacjeskarbowe.pl - AUGUST 2026 issuance.
@@ -58,14 +55,6 @@ obligacje:
     indeksacja: cpi
     okres_lat: 10
   # Guarantee: under deflation, the rate does not fall below the margin.
-
-# --- Macro environment --------------------------------------------------------
-makro:
-  stopa_referencyjna_nbp: 0.0375     # since 2026-03-05
-  cpi_rr: 0.030                      # July 2026, GUS flash estimate
-  cpi_rr_poprzedni: 0.025            # June 2026, final
-  konto_oszczednosciowe_pko: 0.0100  # user's rate, all tiers
-  konto_oszczednosciowe_rynek_top: 0.0600  # best market offers, usually promotional
 
 # --- Simulation assumptions ----------------------------------------------------
 # ALWAYS provide at least two scenarios. These are not forecasts.

@@ -103,29 +103,6 @@ def test_savings_requires_explicit_account_list(sample_df: pd.DataFrame) -> None
         data.savings(sample_df, [])
 
 
-def test_regime_change_detection_finds_step_increase() -> None:
-    """Kategoria pojawiająca się od zera po N miesiącach = przełom."""
-    rows = []
-    for month in range(1, 8):
-        d = f"2025-{month:02d}-05T00:00:00.000Z"
-        rows.append(_mk_row("PKO", "Zakupy spożywcze", 500, "Wydatek", d))
-        if month >= 5:
-            rows.append(_mk_row("PKO", "Czynsz i media", 2500, "Wydatek", d))
-
-    import io
-
-    header = list(rows[0].keys())
-    buf = io.StringIO()
-    buf.write(";".join(header) + "\n")
-    for r in rows:
-        buf.write(";".join(str(r[k]) for k in header) + "\n")
-    buf.seek(0)
-
-    df = data.load(buf)
-    detected, _ = data.detect_regime_change(df)
-    assert detected == pd.Period("2025-05", freq="M")
-
-
 def test_detect_fixed_costs_empty_result_does_not_crash() -> None:
     """
     Regresja: przy zbyt krótkiej historii (brak >=3 miesięcy dla żadnej

@@ -281,62 +281,6 @@ def split_periods(df: pd.DataFrame, profile: dict[str, Any]) -> dict[str, pd.Dat
     return {"all": df, "archive": archive, "active": active, "recent": recent}
 
 
-def detect_regime_change(
-    df: pd.DataFrame, keywords: list[str] | None = None
-) -> tuple[pd.Period | None, pd.Series]:
-    """
-    Looks for a step change in the level of housing-related categories.
-    The result is a PROPOSAL for user confirmation, not a determination.
-    """
-    keywords = keywords or [
-        "czynsz",
-        "mieszkan",
-        "media",
-        "prąd",
-        "prad",
-        "internet",
-        "gaz",
-        "woda",
-        "wynajem",
-    ]
-    exp = expenses(df).copy()
-    mask = exp["category"].str.lower().str.contains("|".join(keywords), na=False)
-    housing = exp[mask]
-    if housing.empty:
-        return None, pd.Series(dtype=float)
-
-    # Fill missing months with zeros - otherwise "category appeared from zero"
-    # is indistinguishable from "category existed all along".
-    monthly = housing.groupby("month")["amount"].sum()
-    full_idx = pd.period_range(df["month"].min(), df["month"].max(), freq="M")
-    monthly = monthly.reindex(full_idx, fill_value=0.0)
-
-    # Case 1: the category simply appears and doesn't disappear.
-    # Then the first non-zero month IS the regime change date.
-    nonzero = monthly[monthly > 0]
-    if not nonzero.empty:
-        first = nonzero.index[0]
-        before = monthly[monthly.index < first]
-        after = monthly[monthly.index >= first]
-        if len(before) >= 3 and (before == 0).all() and (after > 0).mean() >= 0.8:
-            return first, monthly
-
-    # Case 2: level jump. Look for a split that maximizes the difference in
-    # medians, requiring >=3 months on both sides.
-    best: pd.Period | None = None
-    best_ratio = 0.0
-    for i in range(3, len(monthly) - 2):
-        b, a = monthly.iloc[:i], monthly.iloc[i:]
-        if b.median() <= 0:
-            continue
-        ratio = a.median() / b.median()
-        if ratio > best_ratio and ratio > 1.8:
-            best, best_ratio = monthly.index[i], ratio
-
-    fallback: pd.Period = monthly.idxmax()  # type: ignore[assignment]
-    return (best or fallback), monthly
-
-
 # --------------------------------------------------------------------------
 # Fixed costs
 # --------------------------------------------------------------------------
