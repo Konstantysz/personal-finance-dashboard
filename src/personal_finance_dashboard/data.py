@@ -153,6 +153,60 @@ def savings(df: pd.DataFrame, savings_accounts: list[str]) -> pd.DataFrame:
     return df[df["transfer"] & (df["type"] == TYPE_INCOME) & (df["account"].isin(savings_accounts))]
 
 
+def outflow(df: pd.DataFrame, current_accounts: list[str]) -> pd.DataFrame:
+    """
+    Outflow = only the incoming side of a transfer landing on an account
+    NOT in "biezace" (savings, investment, or excluded), whose source
+    account IS in "biezace".
+
+    Symmetric to `savings()`: counting both sides of the pair doubles the
+    amount, so only one side is counted - the incoming side, same as
+    `savings()`, which also makes `account` on the returned rows the
+    destination account (so callers can filter to e.g. investment accounts
+    directly). A PKO -> Revolut move (both "biezace") is excluded because
+    its incoming side lands on an account that IS in `current_accounts`.
+
+    Args:
+        df: Parsed transactions, as returned by `load`.
+        current_accounts: `konta.biezace` from the profile.
+
+    Returns:
+        Rows that are the incoming side of a transfer from a "biezace"
+        account to a non-"biezace" account.
+    """
+    if not current_accounts:
+        raise ValueError(
+            "The list of current accounts is empty. Fill in config/profile.yaml "
+            "- don't guess by account names."
+        )
+    incoming = df[
+        df["transfer"] & (df["type"] == TYPE_INCOME) & (~df["account"].isin(current_accounts))
+    ]
+    # Pair the sides via audit_transfers(), which already resolves the
+    # (date, amount) key properly: only groups of exactly one Expense + one
+    # Income become pairs. Ambiguous keys (two transfers on one day for the
+    # same amount) land in `malformed` and are left out rather than guessed
+    # at - `validate` is where the user gets told about them.
+    pairs = audit_transfers(df).pairs
+    if pairs.empty:
+        return incoming.iloc[:0]
+
+    from_biezace = pairs[pairs["from_account"].isin(current_accounts)]
+    keys = set(
+        zip(
+            from_biezace["date"],
+            from_biezace["amount"],
+            from_biezace["to_account"],
+            strict=True,
+        )
+    )
+    matched = [
+        (d, a, acc) in keys
+        for d, a, acc in zip(incoming["date"], incoming["amount"], incoming["account"], strict=True)
+    ]
+    return incoming[matched]
+
+
 # --------------------------------------------------------------------------
 # Period division
 # --------------------------------------------------------------------------
@@ -920,6 +974,198 @@ def monthly_trends(
             [dict(row) for _, row in new_fixed.iterrows()] if not new_fixed.empty else []
         ),
         "fixed_costs_total": round(fixed_costs_total, 2),
+    }
+
+
+# --------------------------------------------------------------------------
+# Forecast
+# --------------------------------------------------------------------------
+
+
+def _windows_for(n_months: int) -> list[int]:
+    """Generated window sizes: 3, 6, 9, ... up to n_months. Never exceeds history."""
+    return list(range(3, n_months + 1, 3))
+
+
+def _backtest_windows(monthly_expenses: pd.Series, windows: list[int]) -> dict[int, float | None]:
+    """Walk-forward MAPE per window, private helper for `forecast()`.
+
+    To predict month M with window W, uses only the W months strictly before
+    M (median of that window) - never M itself or anything after it. Tested
+    over the last up to 6 months for which at least one window has enough
+    prior history; fewer if history is too short.
+
+    Args:
+        monthly_expenses: Monthly expense totals, sorted by month ascending.
+        windows: Window sizes (in months) to backtest.
+
+    Returns:
+        Dict mapping window size -> MAPE in percent, or None if that window
+        never had enough prior history to produce a prediction.
+    """
+    n = len(monthly_expenses)
+    test_months = list(range(max(0, n - 6), n))
+
+    mape: dict[int, float | None] = {}
+    for w in windows:
+        errors = []
+        for i in test_months:
+            if i < w:
+                continue  # not enough strictly-prior history for this window
+            actual = monthly_expenses.iloc[i]
+            predicted = monthly_expenses.iloc[i - w : i].median()
+            if actual != 0:
+                errors.append(abs(actual - predicted) / abs(actual))
+        mape[w] = round(100 * sum(errors) / len(errors), 1) if errors else None
+    return mape
+
+
+def forecast(
+    df: pd.DataFrame,
+    savings_accounts: list[str],
+    investment_accounts: list[str],
+    current_accounts: list[str],
+    loans: list[dict[str, Any]],
+    months: int = 3,
+    today: pd.Timestamp | None = None,
+) -> dict[str, Any]:
+    """Forecast spending for the next `months` months. No seasonality modelling.
+
+    Three separate lines, never merged:
+
+    1. `wydatki` - the only genuinely forecast line, from `expenses()`.
+       Median (P50) and P75 of monthly totals over generated windows
+       (3, 6, 9, ... months, capped at available history).
+    2. `wplaty_inwestycyjne` - a known position (median of the last 3
+       months only, since the amount has been growing), not a forecast.
+    3. `raty` - known to the zloty, from `loans` (`cele.pozyczki_wlasne`).
+
+    A walk-forward backtest (see `_backtest_windows`) runs on every call and
+    is reported but never used to auto-select the window.
+
+    Args:
+        df: Parsed transactions, as returned by `load` (ACTIVE window).
+        savings_accounts: `konta.oszczednosciowe` from the profile.
+        investment_accounts: `konta.inwestycyjne` from the profile.
+        current_accounts: `konta.biezace` from the profile.
+        loans: `cele.pozyczki_wlasne` from the profile.
+        months: Forecast horizon in months.
+        today: Reference date deciding the running month to exclude.
+            Defaults to the current date.
+
+    Returns:
+        Dict with per-window P50 expenses, backtest MAPE, per-month
+        forecast lines and totals, outliers, and metadata.
+
+    Raises:
+        ValueError: If there is not enough ACTIVE history (fewer than 3
+            full months) to compute a single window.
+    """
+    flow = monthly_flow(df, savings_accounts, today=today)
+    exp_monthly = expenses(df).groupby("month")["amount"].sum().reindex(flow.index).fillna(0.0)
+    exp_monthly = exp_monthly.sort_index()
+
+    if len(exp_monthly) < 3:
+        raise ValueError(
+            f"Not enough ACTIVE history for a forecast: {len(exp_monthly)} full month(s), "
+            "need >= 3."
+        )
+
+    windows = _windows_for(len(exp_monthly))
+    okna = {f"{w}m": round(float(exp_monthly.iloc[-w:].median()), 2) for w in windows}
+    p75_by_window = {w: float(exp_monthly.iloc[-w:].quantile(0.75)) for w in windows}
+
+    backtest_mape = _backtest_windows(exp_monthly, windows)
+    scored = {w: m for w, m in backtest_mape.items() if m is not None}
+    rekomendowane_okno = f"{min(scored, key=lambda w: scored[w])}m" if scored else None
+
+    # Outliers: full data, 1.5x IQR from quartiles. Reported, never removed.
+    q1, q3 = exp_monthly.quantile(0.25), exp_monthly.quantile(0.75)
+    iqr = q3 - q1
+    outliers = []
+    if iqr > 0:
+        for month, amount in exp_monthly.items():
+            deviation = max(0.0, amount - q3, q1 - amount) / iqr
+            if amount > q3 + 1.5 * iqr or amount < q1 - 1.5 * iqr:
+                outliers.append(
+                    {
+                        "miesiac": str(month),
+                        "kwota": round(float(amount), 2),
+                        "odchylenie_iqr": round(float(deviation), 2),
+                    }
+                )
+
+    # Line 2: wplaty_inwestycyjne - known position, median of last 3 months only.
+    inwest_monthly = (
+        outflow(df, current_accounts)
+        .pipe(lambda d: d[d["account"].isin(investment_accounts)])
+        .groupby("month")["amount"]
+        .sum()
+        .reindex(flow.index)
+        .fillna(0.0)
+        .sort_index()
+    )
+    wplaty_seria = [round(float(v), 2) for v in inwest_monthly.tail(3)]
+    wplaty_inwestycyjne = (
+        round(float(inwest_monthly.tail(3).median()), 2) if not inwest_monthly.empty else 0.0
+    )
+
+    # Line 3: raty - known to the zloty, from the loan schedule.
+    last_month = exp_monthly.index.max()
+    horyzont = pd.period_range(last_month + 1, periods=months, freq="M")
+
+    # Headline number: the shortest window (3m), which tracks the current way
+    # of living. Deliberately NOT the lowest-MAPE one - the backtest reports
+    # and recommends but never re-picks, otherwise the command would change
+    # its window month to month on differences that are noise at this sample
+    # size. Every window's P50 stays visible in `okna`, and `uzyte_okno` says
+    # which one the headline came from.
+    uzyte_okno = windows[0]
+    wydatki_p50 = okna[f"{uzyte_okno}m"]
+    wydatki_p75 = round(p75_by_window[uzyte_okno], 2)
+
+    prognoza: list[dict[str, Any]] = []
+    for month in horyzont:
+        raty_month = sum(
+            float(loan["rata_miesieczna"])
+            for loan in loans
+            if pd.Period(loan["pierwsza_rata"], freq="M")
+            <= month
+            <= pd.Period(loan["ostatnia_rata"], freq="M")
+        )
+        odplyw_p50 = round(wydatki_p50 + wplaty_inwestycyjne + raty_month, 2)
+        odplyw_p75 = round(wydatki_p75 + wplaty_inwestycyjne + raty_month, 2)
+        prognoza.append(
+            {
+                "miesiac": str(month),
+                "wydatki_p50": wydatki_p50,
+                "wydatki_p75": wydatki_p75,
+                "wplaty_inwestycyjne": wplaty_inwestycyjne,
+                "raty": round(raty_month, 2),
+                "odplyw_p50": odplyw_p50,
+                "odplyw_p75": odplyw_p75,
+            }
+        )
+
+    suma_key = f"suma_{months}m"
+    suma = {
+        "odplyw_p50": round(sum(p["odplyw_p50"] for p in prognoza), 2),
+        "odplyw_p75": round(sum(p["odplyw_p75"] for p in prognoza), 2),
+    }
+
+    return {
+        "ok": True,
+        "horyzont": [str(m) for m in horyzont],
+        "okna": okna,
+        "backtest_mape": {f"{w}m": m for w, m in backtest_mape.items()},
+        "rekomendowane_okno": rekomendowane_okno,
+        "uzyte_okno": f"{uzyte_okno}m",
+        "prognoza": prognoza,
+        suma_key: suma,
+        "wplaty_seria": wplaty_seria,
+        "outliers": outliers,
+        "aktywne_od": str(exp_monthly.index.min()),
+        "n_miesiecy": len(exp_monthly),
     }
 
 

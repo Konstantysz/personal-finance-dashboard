@@ -675,5 +675,115 @@ def taxes(
     _emit({"ok": True, **result, "report": str(report_path)})
 
 
+def _build_forecast_report(result: dict[str, Any]) -> str:
+    """Build markdown report for the spending forecast.
+
+    Args:
+        result: Dict from data.forecast().
+
+    Returns:
+        Markdown report as string.
+    """
+    horizon = result["horyzont"]
+    report_lines = [
+        f"# Spending forecast - {horizon[0]} to {horizon[-1]}",
+        "",
+        f"ACTIVE window: {result['aktywne_od']} onward, {result['n_miesiecy']} full months.",
+        "",
+        "No seasonality modelling: there is not enough history to fit one, so the "
+        "per-month expense forecast (P50/P75) is identical across all forecast "
+        "months. The months differ from each other only by known installments "
+        "(`raty`) that fall due in that specific month - this is not a model "
+        "predicting change, it is a flat baseline plus known obligations.",
+        "",
+        "## P50 expenses per window",
+        "| Window | P50 wydatki | Backtest MAPE |",
+        "|---|---|---|",
+    ]
+    for key, value in result["okna"].items():
+        mape = result["backtest_mape"].get(key)
+        report_lines.append(f"| {key} | {value:.2f} | {mape if mape is not None else '—'}% |")
+    report_lines += [
+        "",
+        f"Recommended window (lowest MAPE, informational only - not auto-applied): "
+        f"**{result['rekomendowane_okno']}**",
+        "",
+        "## Monthly forecast",
+        "| Miesiąc | Wydatki P50 | Wydatki P75 | Wpłaty inwestycyjne | Raty "
+        "| Odpływ P50 | Odpływ P75 |",
+        "|---|---|---|---|---|---|---|",
+    ]
+    for row in result["prognoza"]:
+        report_lines.append(
+            f"| {row['miesiac']} | {row['wydatki_p50']:.2f} | {row['wydatki_p75']:.2f} | "
+            f"{row['wplaty_inwestycyjne']:.2f} | {row['raty']:.2f} | "
+            f"{row['odplyw_p50']:.2f} | {row['odplyw_p75']:.2f} |"
+        )
+    suma_key = next(k for k in result if k.startswith("suma_"))
+    suma = result[suma_key]
+    report_lines += [
+        "",
+        f"## Total over {len(horizon)} months",
+        f"- Total outflow P50: **{suma['odplyw_p50']:.2f} PLN**",
+        f"- Total outflow P75: **{suma['odplyw_p75']:.2f} PLN**",
+        "",
+        "## Investment contributions (known, not forecast)",
+        f"Last 3 months: {result['wplaty_seria']}",
+        "",
+    ]
+    if result["outliers"]:
+        report_lines += ["## Outliers (reported, not removed from the forecast)"]
+        for o in result["outliers"]:
+            report_lines.append(
+                f"- {o['miesiac']}: {o['kwota']:.2f} PLN ({o['odchylenie_iqr']}x IQR)"
+            )
+        report_lines.append("")
+    return "\n".join(report_lines)
+
+
+@app.command()
+def forecast(
+    csv_path: Path = typer.Option(DEFAULT_CSV, "--csv"),
+    profile_path: Path = typer.Option(DEFAULT_PROFILE, "--profile"),
+    months: int = typer.Option(3, "--months", help="Forecast horizon in months."),
+) -> None:
+    """Forecast spending for the next N months. No seasonality; P50/P75 quantiles only."""
+    if not csv_path.exists():
+        _emit({"ok": False, "error": f"Missing file {csv_path}"})
+        raise typer.Exit(code=1)
+    if not profile_path.exists():
+        _emit({"ok": False, "error": f"Missing {profile_path}. Run /profile."})
+        raise typer.Exit(code=1)
+
+    df = data.load(csv_path)
+    profile = data.load_profile(profile_path)
+    active = data.split_periods(df, profile)["active"]
+
+    if active.empty:
+        _emit({"ok": False, "error": "No data in the ACTIVE window"})
+        raise typer.Exit(code=1)
+
+    konta = profile.get("konta", {})
+    try:
+        result = data.forecast(
+            active,
+            savings_accounts=konta.get("oszczednosciowe", []),
+            investment_accounts=konta.get("inwestycyjne", []),
+            current_accounts=konta.get("biezace", []),
+            loans=profile.get("cele", {}).get("pozyczki_wlasne", []),
+            months=months,
+        )
+    except ValueError as exc:
+        _emit({"ok": False, "error": str(exc)})
+        raise typer.Exit(code=1) from exc
+
+    report_text = _build_forecast_report(result)
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+    report_path = REPORTS_DIR / f"forecast_{date.today().isoformat()}.md"
+    report_path.write_text(report_text, encoding="utf-8")
+
+    _emit({**result, "report": str(report_path)})
+
+
 if __name__ == "__main__":
     app()
