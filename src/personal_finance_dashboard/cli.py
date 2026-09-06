@@ -6,7 +6,8 @@ touches data/raw/*.csv. Each subcommand:
   2. prints a short JSON summary to stdout.
 
 The agent reads stdout and does not load the entire report back into context.
-Implemented: `validate`, `analyze`, `monthly`, `category`, `invest`, `taxes`, `goal`.
+Implemented: `validate`, `analyze`, `monthly`, `category`, `categories`, `invest`,
+`taxes`, `goal`, `forecast`.
 """
 
 from __future__ import annotations
@@ -32,6 +33,8 @@ app = typer.Typer(help="Personal finance analysis - CSV -> report + JSON.")
 DEFAULT_CSV = Path("data/raw/wallet_export.csv")
 DEFAULT_PROFILE = Path("config/profile.yaml")
 DEFAULT_PARAMS = Path("config/parameters.yaml")
+DEFAULT_TREE = Path("config/category_tree.json")
+DEFAULT_MAPPING = Path("config/category_mapping.yaml")
 REPORTS_DIR = Path("output/reports")
 CHARTS_DIR = Path("output/charts")
 
@@ -466,6 +469,124 @@ def category(
             "active": result["active"],
             "report": str(report_path),
             "chart": str(chart),
+        }
+    )
+
+
+def _build_categories_report(result: dict[str, Any], tryb_okresu: str) -> str:
+    """Build markdown report for the category breakdown.
+
+    Args:
+        result: Output of `data.category_breakdown`.
+        tryb_okresu: Period mode from the profile, named in the header.
+
+    Returns:
+        Markdown text.
+    """
+    okresy = result["okresy"]
+    span = f"{okresy[0]} .. {okresy[-1]}" if okresy else "none"
+    lines = [
+        f"# Categories - last {result['n_okresow']} closed periods ({span}, mode: {tryb_okresu})",
+        "",
+        "Class is a heuristic over this window: staly = present in >= 80% of periods and",
+        "coefficient of variation <= 0.35; sporadyczny = present in < 50% of periods;",
+        "zmienny = the rest. The running period is excluded.",
+        "",
+        "## Totals per class (PLN per period)",
+        pd.DataFrame(result["sumy_klas"]).T.to_markdown(),
+        "",
+    ]
+    if result["adnotacje"]:
+        lines += ["## Events (from profile okresy.wydarzenia)"]
+        lines += [f"- {p}: {'; '.join(v)}" for p, v in result["adnotacje"].items()]
+        lines += [""]
+    if not result["grupy"].empty:
+        lines += ["## Top-level groups (category tree)", result["grupy"].round(0).to_markdown(), ""]
+    kategorie = result["kategorie"]
+    pivot = result["pivot"]
+    for klasa in ("staly", "zmienny", "sporadyczny"):
+        members = kategorie[kategorie["klasa"] == klasa]
+        lines += [f"## {klasa} ({len(members)} categories)"]
+        if members.empty:
+            lines += ["None.", ""]
+            continue
+        table = pivot.loc[members["kategoria"]].round(0)
+        stats = members.set_index("kategoria")
+        table.insert(0, "srednia", stats["srednia"].round(0))
+        table.insert(0, "mediana", stats["mediana"].round(0))
+        lines += [table.to_markdown(), ""]
+    return "\n".join(lines)
+
+
+@app.command()
+def categories(
+    months: int = typer.Option(9, "--months", min=1),
+    include_last: bool = typer.Option(False, "--include-last"),
+    csv_path: Path = typer.Option(DEFAULT_CSV, "--csv"),
+    profile_path: Path = typer.Option(DEFAULT_PROFILE, "--profile"),
+    tree_path: Path = typer.Option(DEFAULT_TREE, "--tree"),
+    mapping_path: Path = typer.Option(DEFAULT_MAPPING, "--mapping"),
+) -> None:
+    """Expenses per category per period, classified as fixed / variable / sporadic."""
+    if not csv_path.exists() or not profile_path.exists():
+        _emit({"ok": False, "error": "CSV and profile are required."})
+        raise typer.Exit(code=1)
+    df = data.load(csv_path)
+    profile = data.load_profile(profile_path)
+    tryb_okresu = profile.get("osoba", {}).get("tryb_okresu", "kalendarzowy")
+    fixed_override = profile.get("koszty_stale", {}).get("potwierdzone", []) or []
+    events = profile.get("okresy", {}).get("wydarzenia", []) or []
+    windows = data.split_periods(df, profile)
+    try:
+        tree = (
+            data.load_category_tree(tree_path, mapping_path if mapping_path.exists() else None)
+            if tree_path.exists()
+            else None
+        )
+        result = data.category_breakdown(
+            windows["active"],
+            months=months,
+            drop_incomplete=not include_last,
+            fixed_override=fixed_override,
+            tree=tree,
+            events=events,
+        )
+    except ValueError as exc:
+        _emit({"ok": False, "error": str(exc)})
+        raise typer.Exit(code=2) from exc
+
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+    report_path = REPORTS_DIR / f"kategorie_{date.today().isoformat()}.md"
+    report_path.write_text(_build_categories_report(result, tryb_okresu), encoding="utf-8")
+
+    kategorie = result["kategorie"]
+    top: dict[str, list[dict[str, Any]]] = {}
+    for klasa in ("staly", "zmienny", "sporadyczny"):
+        members = kategorie[kategorie["klasa"] == klasa].head(8)
+        top[klasa] = [
+            {
+                "kategoria": r["kategoria"],
+                "mediana": r["mediana"],
+                "srednia": r["srednia"],
+                "obecna_w": r["obecna_w"],
+            }
+            for _, r in members.iterrows()
+        ]
+    _emit(
+        {
+            "ok": True,
+            "okresy": result["okresy"],
+            "n_okresow": result["n_okresow"],
+            "tryb_okresu": tryb_okresu,
+            "sumy_klas": result["sumy_klas"],
+            "top": top,
+            "grupy": [
+                {"grupa": g, "mediana": r["mediana"], "srednia": r["srednia"]}
+                for g, r in result["grupy"].iterrows()
+            ],
+            "adnotacje": result["adnotacje"],
+            "koszty_stale_potwierdzone": len(fixed_override),
+            "report": str(report_path),
         }
     )
 

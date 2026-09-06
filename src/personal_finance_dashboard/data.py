@@ -228,11 +228,17 @@ def _preceding_workday(day: Any, country_holidays: holidays.HolidayBase) -> Any:
     return day
 
 
-def _payday_boundaries(start: pd.Timestamp, end: pd.Timestamp, payday: int) -> list[pd.Timestamp]:
+def _payday_boundaries(
+    start: pd.Timestamp, end: pd.Timestamp, payday: int
+) -> tuple[list[pd.Timestamp], list[pd.Period]]:
     """Actual (workday-shifted) payday dates covering [start, end], one per calendar month.
 
     Pads one month before `start` and one after `end` so every transaction in
     range falls strictly between two known boundaries.
+
+    Returns:
+        Sorted boundary dates and, aligned with them, the nominal calendar
+        month each payday belongs to (before the workday shift).
     """
     country_holidays = holidays.Poland(years=range(start.year - 1, end.year + 2))  # type: ignore[attr-defined]
     months = pd.period_range(start.to_period("M") - 1, end.to_period("M") + 1, freq="M")
@@ -240,7 +246,7 @@ def _payday_boundaries(start: pd.Timestamp, end: pd.Timestamp, payday: int) -> l
     for period in months:
         candidate = pd.Timestamp(year=period.year, month=period.month, day=payday)
         boundaries.append(_preceding_workday(candidate, country_holidays))
-    return sorted(boundaries)
+    return boundaries, list(months)
 
 
 def assign_periods(
@@ -256,8 +262,9 @@ def assign_periods(
     concentrated on payday stays grouped with the expenses it is meant to
     cover even when the calendar month boundary would otherwise split them.
     The window boundary shifts to the preceding Polish workday whenever the
-    payday date falls on a weekend or public holiday, and the window is
-    labeled by the `pd.Period` of its start month.
+    payday date falls on a weekend or public holiday. The window is labeled
+    by the month it funds: the salary paid on 19 June covers July's bills,
+    so the window 19 June .. 20 July is `2026-07` (nominal payday month + 1).
 
     Args:
         df: Parsed transactions, as returned by `load`.
@@ -288,19 +295,38 @@ def assign_periods(
         out["month_end"] = out["date"]
         return out
 
-    boundaries = _payday_boundaries(df["date"].min(), df["date"].max(), payday)
+    boundaries, nominal = _payday_boundaries(df["date"].min(), df["date"].max(), payday)
     bin_labels = list(range(len(boundaries) - 1))
     bin_index = pd.cut(
         df["date"], bins=boundaries, labels=bin_labels, right=False, include_lowest=True
-    )
+    ).astype(int)
 
     out = df.copy()
-    starts = bin_index.map(lambda i: boundaries[int(i)])
-    ends = bin_index.map(lambda i: boundaries[int(i) + 1] - pd.Timedelta(days=1))
-    out["month_start"] = starts
-    out["month_end"] = ends
-    out["month"] = starts.dt.to_period("M")
+    out["month_start"] = pd.to_datetime(bin_index.map(lambda i: boundaries[i]))
+    out["month_end"] = pd.to_datetime(
+        bin_index.map(lambda i: boundaries[i + 1] - pd.Timedelta(days=1))
+    )
+    out["month"] = pd.PeriodIndex(bin_index.map(lambda i: nominal[i] + 1), freq="M")
     return out
+
+
+def running_periods(df: pd.DataFrame, today: pd.Timestamp) -> set[Any]:
+    """Periods still open on `today`.
+
+    The calendar month of `today`, or - in payday mode - every window whose
+    `month_end` has not passed yet.
+
+    Args:
+        df: Transactions with a `month` column (and `month_end` in payday mode).
+        today: Reference date.
+
+    Returns:
+        Set of `pd.Period` labels that must not be treated as closed.
+    """
+    if "month_end" in df.columns:
+        month_end = pd.to_datetime(df["month_end"])
+        return set(df.loc[month_end >= today.normalize(), "month"].unique())
+    return {today.to_period("M")}
 
 
 def split_periods(df: pd.DataFrame, profile: dict[str, Any]) -> dict[str, pd.DataFrame]:
@@ -464,7 +490,7 @@ def monthly_flow(
 
     if drop_incomplete and not out.empty:
         ref = today or pd.Timestamp.now()
-        out = out.drop(index=ref.to_period("M"), errors="ignore")
+        out = out.drop(index=list(running_periods(df, ref)), errors="ignore")
 
     return out
 
@@ -541,6 +567,270 @@ def monthly_summary(df: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, Any]]:
     }
 
     return df_summary, overall
+
+
+# --------------------------------------------------------------------------
+# Category breakdown - fixed vs variable
+# --------------------------------------------------------------------------
+
+
+_BREAKDOWN_FIXED_PRESENCE = 0.8
+_BREAKDOWN_FIXED_CV = 0.35
+_BREAKDOWN_SPORADIC_PRESENCE = 0.5
+_BREAKDOWN_CLASSES = ("staly", "zmienny", "sporadyczny")
+_BREAKDOWN_COLUMNS = ["kategoria", "klasa", "mediana", "srednia", "suma", "obecna_w", "cv"]
+
+
+def _classify_category(presence: float, cv: float) -> str:
+    """Fixed / variable / sporadic label from presence ratio and coefficient of variation."""
+    if presence < _BREAKDOWN_SPORADIC_PRESENCE:
+        return "sporadyczny"
+    if presence >= _BREAKDOWN_FIXED_PRESENCE and cv <= _BREAKDOWN_FIXED_CV:
+        return "staly"
+    return "zmienny"
+
+
+_TREE_INCOME_GROUP = "Przychód"
+
+
+def load_category_tree(path: str | Path, mapping_path: str | Path | None = None) -> dict[str, str]:
+    """Flatten the Wallet category tree into `name -> top-level group`.
+
+    The tree is `{group: [leaf, ...]}` or `{group: {subgroup: [leaf, ...]}}`.
+    Every group, subgroup and leaf name maps to its top-level group, so a
+    transaction booked directly on a subgroup still rolls up. A name that
+    appears in more than one branch keeps the first non-income branch
+    (e.g. `Alimenty` is an expense before it is an income).
+
+    `mapping_path` (YAML, key `aliasy`: export name -> tree name) covers
+    categories Wallet renamed over time, so the export label resolves to the
+    same group as its current tree name.
+
+    Args:
+        path: JSON file with the tree.
+        mapping_path: Optional YAML with `aliasy`; ignored when None.
+
+    Returns:
+        Dict from category name to top-level group name.
+
+    Raises:
+        ValueError: If an alias points at a name absent from the tree.
+    """
+    import json
+
+    tree = json.loads(Path(path).read_text(encoding="utf-8"))
+    mapping: dict[str, str] = {}
+
+    def put(name: str, group: str) -> None:
+        if name not in mapping or mapping[name] == _TREE_INCOME_GROUP:
+            mapping[name] = group
+
+    for group, children in tree.items():
+        put(group, group)
+        subgroups = children.items() if isinstance(children, dict) else [(None, children)]
+        for subgroup, leaves in subgroups:
+            if subgroup is not None:
+                put(subgroup, group)
+            for leaf in leaves:
+                put(leaf, group)
+
+    if mapping_path is None:
+        return mapping
+    with Path(mapping_path).open(encoding="utf-8") as f:
+        aliases: dict[str, str] = (yaml.safe_load(f) or {}).get("aliasy", {}) or {}
+    unknown = sorted(target for target in aliases.values() if target not in mapping)
+    if unknown:
+        raise ValueError(f"category_mapping targets missing from the tree: {unknown}")
+    return {**mapping, **{old: mapping[new] for old, new in aliases.items()}}
+
+
+def _period_bounds(exp: pd.DataFrame, periods: list[Any]) -> dict[str, tuple[Any, Any]]:
+    """Real date range of every period label, from payday columns or the calendar month."""
+    if "month_start" in exp.columns:
+        starts = pd.to_datetime(exp["month_start"].astype(object))
+        ends = pd.to_datetime(exp["month_end"].astype(object))
+        return {
+            str(p): (starts[exp["month"] == p].min(), ends[exp["month"] == p].max())
+            for p in periods
+        }
+    return {str(p): (p.start_time.normalize(), p.end_time.normalize()) for p in periods}
+
+
+def period_events(
+    events: list[dict[str, Any]], bounds: dict[str, tuple[Any, Any]]
+) -> dict[str, list[str]]:
+    """Annotate periods with profile events (`okresy.wydarzenia`) that overlap them.
+
+    Args:
+        events: Items with `od`, `do` (dates) and `opis`.
+        bounds: Period label -> (start date, end date), e.g. from a breakdown.
+
+    Returns:
+        Dict period label -> list of event descriptions, only for periods
+        that have at least one.
+    """
+    out: dict[str, list[str]] = {}
+    for label, (start, end) in bounds.items():
+        hits = [
+            str(ev.get("opis", ""))
+            for ev in events
+            if pd.Timestamp(ev["od"]) <= end and pd.Timestamp(ev["do"]) >= start
+        ]
+        if hits:
+            out[label] = hits
+    return out
+
+
+def _group_rollup(pivot: pd.DataFrame, tree: dict[str, str] | None) -> pd.DataFrame:
+    """Sum the category x period pivot into top-level groups, with median and mean.
+
+    Raises:
+        ValueError: If a category is missing from `tree` - every transaction
+            has a category, so this is a config gap (add it to the tree or to
+            `config/category_mapping.yaml`), not a bucket to invent.
+    """
+    if tree is None or pivot.empty:
+        return pd.DataFrame(columns=["mediana", "srednia"])
+    missing = sorted(c for c in pivot.index if c not in tree)
+    if missing:
+        raise ValueError(f"categories missing from the category tree: {missing}")
+    rolled = pivot.groupby(pivot.index.map(tree.__getitem__)).sum()
+    rolled.insert(0, "srednia", rolled.mean(axis=1).round(2))
+    rolled.insert(0, "mediana", rolled.median(axis=1).round(2))
+    return rolled.sort_values("srednia", ascending=False)
+
+
+def _empty_breakdown() -> dict[str, Any]:
+    return {
+        "okresy": [],
+        "n_okresow": 0,
+        "pivot": pd.DataFrame(),
+        "kategorie": pd.DataFrame(columns=_BREAKDOWN_COLUMNS),
+        "sumy_klas": {
+            k: {"mediana_miesieczna": 0.0, "suma": 0.0, "liczba": 0} for k in _BREAKDOWN_CLASSES
+        },
+        "grupy": pd.DataFrame(columns=["mediana", "srednia"]),
+        "adnotacje": {},
+    }
+
+
+def _breakdown_rows(pivot: pd.DataFrame, fixed_override: frozenset[str]) -> pd.DataFrame:
+    """Per-category statistics and class label from a category x period pivot.
+
+    Categories in `fixed_override` (confirmed by the user in the profile) are
+    labeled `staly` regardless of the heuristic.
+    """
+    n = pivot.shape[1]
+    rows = []
+    for cat, series in pivot.iterrows():
+        present = int((series > 0).sum())
+        mean = float(series.mean())
+        cv = float(series.std(ddof=0) / mean) if mean > 0 else 0.0
+        klasa = "staly" if cat in fixed_override else _classify_category(present / n, cv)
+        rows.append(
+            {
+                "kategoria": cat,
+                "klasa": klasa,
+                "mediana": round(float(series.median()), 2),
+                "srednia": round(mean, 2),
+                "suma": round(float(series.sum()), 2),
+                "obecna_w": present,
+                "cv": round(cv, 2),
+            }
+        )
+    order = {k: i for i, k in enumerate(_BREAKDOWN_CLASSES)}
+    kategorie = pd.DataFrame(rows, columns=_BREAKDOWN_COLUMNS)
+    return (
+        kategorie.assign(_o=kategorie["klasa"].map(order))
+        .sort_values(["_o", "srednia"], ascending=[True, False])
+        .drop(columns="_o")
+        .reset_index(drop=True)
+    )
+
+
+def category_breakdown(
+    df: pd.DataFrame,
+    months: int = 9,
+    today: pd.Timestamp | None = None,
+    drop_incomplete: bool = True,
+    fixed_override: list[str] | None = None,
+    tree: dict[str, str] | None = None,
+    events: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Expenses per category per period over the last `months` closed periods.
+
+    Every category is labeled by how it behaves across the window, not by its
+    name. `staly` = present in at least 80% of periods with coefficient of
+    variation (stdev / mean, zeros included) at most 0.35. `sporadyczny` =
+    present in fewer than half of the periods. Everything else is `zmienny`.
+    This is a HEURISTIC over the chosen window - show it for approval.
+    Categories in `fixed_override` are always `staly`.
+
+    Args:
+        df: Transactions, as returned by `load` (optionally rebucketed by
+            `assign_periods`).
+        months: Number of most recent closed periods to include.
+        today: Reference date deciding which period is still running.
+            Defaults to the current date.
+        drop_incomplete: When False, keep the running period.
+        fixed_override: Category names confirmed as fixed by the user
+            (`koszty_stale.potwierdzone` in the profile).
+        tree: Category -> top-level group map from `load_category_tree`;
+            enables the `grupy` rollup.
+        events: Profile events (`okresy.wydarzenia`) used to annotate periods.
+
+    Returns:
+        Dict with `okresy` (list of period labels), `n_okresow`, `pivot`
+        (DataFrame category x period, PLN, zero-filled), `kategorie`
+        (DataFrame with `kategoria`, `klasa`, `mediana`, `srednia`, `suma`,
+        `obecna_w`, `cv`, sorted by class then mean descending),
+        `sumy_klas` (per class: `mediana_miesieczna`, `suma`, `liczba`),
+        `grupy` (DataFrame group x period with `mediana`/`srednia`, empty
+        without `tree`) and `adnotacje` (period label -> event descriptions).
+
+    Raises:
+        ValueError: If `months` < 1, or a category is absent from `tree`.
+    """
+    if months < 1:
+        raise ValueError("months must be >= 1")
+
+    exp = expenses(df).copy()
+    exp["amount"] = exp["amount"].abs()
+    if drop_incomplete and not exp.empty:
+        ref = today or pd.Timestamp.now()
+        exp = exp[~exp["month"].isin(running_periods(exp, ref))]
+
+    periods = sorted(exp["month"].unique())[-months:]
+    if not periods:
+        return _empty_breakdown()
+
+    exp = exp[exp["month"].isin(periods)]
+    pivot = (
+        exp.pivot_table(index="category", columns="month", values="amount", aggfunc="sum")
+        .reindex(columns=periods)
+        .fillna(0.0)
+    )
+    kategorie = _breakdown_rows(pivot, frozenset(fixed_override or ()))
+
+    sumy_klas: dict[str, dict[str, float | int]] = {}
+    for klasa in _BREAKDOWN_CLASSES:
+        members = kategorie.loc[kategorie["klasa"] == klasa, "kategoria"].tolist()
+        per_period = pivot.loc[members].sum(axis=0) if members else pd.Series(0.0, index=periods)
+        sumy_klas[klasa] = {
+            "mediana_miesieczna": round(float(per_period.median()), 2),
+            "suma": round(float(per_period.sum()), 2),
+            "liczba": len(members),
+        }
+
+    return {
+        "okresy": [str(p) for p in periods],
+        "n_okresow": len(periods),
+        "pivot": pivot.rename(columns=str),
+        "kategorie": kategorie,
+        "sumy_klas": sumy_klas,
+        "grupy": _group_rollup(pivot.rename(columns=str), tree),
+        "adnotacje": period_events(events or [], _period_bounds(exp, periods)),
+    }
 
 
 def category_analysis(df: pd.DataFrame, name: str) -> dict[str, Any]:

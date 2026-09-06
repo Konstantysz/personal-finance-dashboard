@@ -828,3 +828,121 @@ def test_monthly_with_specific_valid_month(tmp_csv: Path, tmp_profile: Path) -> 
     output = json.loads(result.stdout.strip())
     assert output["ok"] is True
     assert output["last_month"] == "2026-03"
+
+
+def test_categories_command_success(tmp_csv: Path, tmp_profile: Path) -> None:
+    """categories command writes a report and emits class totals."""
+    result = runner.invoke(
+        app,
+        [
+            "categories",
+            "--csv",
+            str(tmp_csv),
+            "--profile",
+            str(tmp_profile),
+            "--months",
+            "4",
+            "--tree",
+            str(tmp_csv.parent / "no_tree.json"),
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    output = json.loads(result.stdout.strip())
+    assert output["ok"] is True
+    assert output["n_okresow"] <= 4
+    assert set(output["sumy_klas"]) == {"staly", "zmienny", "sporadyczny"}
+    assert output["top"]["staly"][0]["kategoria"] == "Food"
+    assert output["grupy"] == []
+    assert output["adnotacje"] == {}
+    assert Path(output["report"]).exists()
+    assert "## staly" in Path(output["report"]).read_text(encoding="utf-8")
+
+
+def test_categories_command_include_last(tmp_csv: Path, tmp_profile: Path) -> None:
+    """--include-last keeps the running period."""
+    result = runner.invoke(
+        app,
+        [
+            "categories",
+            "--csv",
+            str(tmp_csv),
+            "--profile",
+            str(tmp_profile),
+            "--include-last",
+            "--tree",
+            str(tmp_csv.parent / "no_tree.json"),
+        ],
+    )
+    assert result.exit_code == 0, result.stdout
+    output = json.loads(result.stdout.strip())
+    assert output["n_okresow"] == 6
+
+
+def test_categories_command_missing_csv(tmp_profile: Path) -> None:
+    """categories command errors when CSV is missing."""
+    result = runner.invoke(
+        app, ["categories", "--csv", "/nonexistent.csv", "--profile", str(tmp_profile)]
+    )
+    assert result.exit_code == 1
+    assert json.loads(result.stdout.strip())["ok"] is False
+
+
+def test_categories_command_uses_tree_fixed_and_events(
+    tmp_csv: Path, tmp_profile: Path, tmp_path: Path
+) -> None:
+    """Profile keys koszty_stale/wydarzenia and --tree flow through to the JSON."""
+    tree = tmp_path / "tree.json"
+    tree.write_text('{"Jedzenie": ["Food"]}', encoding="utf-8")
+    profile = tmp_path / "profile2.yaml"
+    text = tmp_profile.read_text(encoding="utf-8").replace(
+        "okresy:\n  regime_change_date: 2026-01-01\n",
+        "okresy:\n  regime_change_date: 2026-01-01\n  wydarzenia:\n"
+        "    - od: 2026-02-01\n      do: 2026-02-10\n      opis: trip\n",
+    )
+    profile.write_text(text + "koszty_stale:\n  potwierdzone: [Food]\n", encoding="utf-8")
+    result = runner.invoke(
+        app,
+        [
+            "categories",
+            "--csv",
+            str(tmp_csv),
+            "--profile",
+            str(profile),
+            "--tree",
+            str(tree),
+            "--mapping",
+            str(tmp_path / "no_mapping.yaml"),
+        ],
+    )
+    assert result.exit_code == 0, result.stdout
+    output = json.loads(result.stdout.strip())
+    assert output["koszty_stale_potwierdzone"] == 1
+    assert output["grupy"][0]["grupa"] == "Jedzenie"
+    assert output["adnotacje"] == {"2026-02": ["trip"]}
+
+
+def test_categories_command_fails_on_category_missing_from_tree(
+    tmp_csv: Path, tmp_profile: Path, tmp_path: Path
+) -> None:
+    """A tree that lacks a category used in the data is a config error, exit 2."""
+    tree = tmp_path / "tree.json"
+    tree.write_text('{"Mieszkanie": ["Czynsz"]}', encoding="utf-8")
+    result = runner.invoke(
+        app,
+        [
+            "categories",
+            "--csv",
+            str(tmp_csv),
+            "--profile",
+            str(tmp_profile),
+            "--tree",
+            str(tree),
+            "--mapping",
+            str(tmp_path / "no_mapping.yaml"),
+        ],
+    )
+    assert result.exit_code == 2
+    output = json.loads(result.stdout.strip())
+    assert output["ok"] is False
+    assert "Food" in output["error"]

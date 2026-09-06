@@ -1,0 +1,15 @@
+# Category names that appear in data/raw/wallet_export.csv under a label
+# different from the one in config/category_tree.json (Wallet renamed them
+# over time). Key = name in the export, value = name in the tree.
+# Applied only when rolling categories up to tree groups (`categories`);
+# transaction rows keep their original category names everywhere else.
+#
+# Proposed 2026-09-06 from the 7 export names absent from the tree - verify.
+aliasy:
+  "Artykuły biurowe, narzędzia": "Papiernicze, narzędzia"
+  "Odzież i obuwie": "Ubrania i buty"
+  "Opłaty": "Opłaty, prowizje"
+  "Produkty spożywcze": "Artykuły spożywcze"
+  "Restauracje, fast-food": "Restauracja, fast-food"
+  "Telefonia, telefon komórkowy": "Telefon, komórka"
+  "Urlop, wycieczki, hotele": "Wakacje, wycieczki, hotele"

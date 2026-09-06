@@ -9,7 +9,7 @@ Concisely, without decorative headings/emoji. Concrete facts, numbers, source of
 - Format: `uv run ruff format . && uv run ruff check --fix .`
 - Type check: `uv run mypy src`
 - Lint (all): `uv run pre-commit run --all-files`
-- CLI: `uv run personal-finance-dashboard <validate|analyze|monthly|category|invest|taxes|goal|forecast>`
+- CLI: `uv run personal-finance-dashboard <validate|analyze|monthly|category|categories|invest|taxes|goal|forecast>`
 
 ## Overriding principle: CLI, not raw data
 
@@ -25,8 +25,8 @@ a full report to `output/reports/*.md` and charts to `output/charts/*.png`, and 
 it - do not load entire reports back into context unless the user asks about
 something the JSON does not cover.
 
-Implemented: `validate`, `analyze`, `monthly`, `category`, `invest`, `taxes`, `goal`,
-`forecast`.
+Implemented: `validate`, `analyze`, `monthly`, `category`, `categories`, `invest`,
+`taxes`, `goal`, `forecast`.
 
 ## Updating data/raw/wallet_export.csv
 
@@ -48,6 +48,10 @@ mtime or ask the user, do not assume.
 - `config/profile.yaml` - user profile (gitignored, section below)
 - `config/parameters.yaml` - market/tax rates with verification date
 - `config/category_mapping.yaml` - mapping of categories changed over time
+- `config/category_tree.json` - Wallet category tree (group -> subgroup ->
+  leaf); `categories` rolls leaves up to top-level groups with it
+- `config/profile.yaml` keys `koszty_stale.potwierdzone` (user-confirmed
+  fixed categories) and `okresy.wydarzenia` (dated events that annotate periods)
 - `.claude/commands/*.md` - specifications of target command behavior
   (they load on-demand, do not clutter context at startup)
 
@@ -66,7 +70,11 @@ which window you are using.
 `wyplata` rebuckets every transaction into a payday-to-payday window using
 `osoba.dzien_wyplaty` (day of month) — boundary shifts to the preceding
 Polish workday when payday lands on a weekend/holiday (`holidays` package).
+A window is labeled by the month it funds: the payday of 19 June opens the
+window 19 June .. 20 July, labeled `2026-07` (nominal payday month + 1).
 Single point of truth: `data.assign_periods()`, wired into `split_periods()`.
+The running window is detected by `data.running_periods()` (via `month_end`,
+not the calendar month) - use it wherever an unfinished period must be dropped.
 `monthly_trends()` returns `okres_od`/`okres_do` (real boundary dates) only
 in `wyplata` mode — `None` under `kalendarzowy`. Old reports and
 `detect_fixed_costs`/seasonality numbers are NOT comparable across the two

@@ -24,6 +24,12 @@ okresy:
   # Earlier regime changes, if any (job change, moving out from parents,
   # end of studies). Format: date + description.
   inne_przelomy: []
+  # Events overlapping periods (trips, moves, one-off projects). `categories`
+  # annotates matching periods with `opis` so spikes are explained, not guessed.
+  wydarzenia: []
+    # - od: 2026-06-01
+    #   do: 2026-08-31
+    #   opis: "summer trips"
 
 konta:
   oszczednosciowe: []           # only these; transfers HERE = savings
@@ -74,3 +80,9 @@ preferencje_raportu:
   jezyk: pl
   waluta: PLN
   domyslne_okno: active         # active | recent | archive | all
+
+# --- Fixed costs confirmed by the user -------------------------------------
+# `categories` always labels these `staly`, even when a payment slipped across
+# a period boundary (0 in one period, doubled in the next).
+koszty_stale:
+  potwierdzone: []

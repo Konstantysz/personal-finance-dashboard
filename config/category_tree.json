@@ -1,0 +1,109 @@
+{
+  "Jedzenie i napoje": {
+    "Artykuły spożywcze": ["Zakupy spożywcze", "Snack", "Piciu", "Catering"],
+    "Bar, kawiarnia": ["Bar", "Kawiarnia"],
+    "Restauracja, fast-food": ["Resturacja", "Jedzenie zamówione", "Fast food"]
+  },
+  "Zakupy": {
+    "Akcesoria": ["Biżuteria", "Akcesoria podróżne", "Sprzęt biurowy"],
+    "Chemia": [],
+    "Dom, ogród": [],
+    "Drogeria, apteka": [],
+    "Dzieci": [],
+    "Elektronika": [],
+    "Papiernicze, narzędzia": [],
+    "Wspólne konto": [],
+    "Ubrania i buty": [],
+    "Zdrowie i uroda": [],
+    "Zwierzęta domowe": []
+  },
+  "Mieszkanie": [
+    "Czynsz",
+    "Energia, media",
+    "Konserwacja, naprawy",
+    "Kredyt hipoteczny",
+    "Ubezpieczenie majątkowe",
+    "Usługi"
+  ],
+  "Transport": {
+    "Podróże służbowe": [],
+    "Taksówka": [],
+    "Transport dalekobieżny": ["Samolot", "Pociąg", "Autokar"],
+    "Transport publiczny": []
+  },
+  "Pojazd": [
+    "Konserwacja pojazdu",
+    "Leasing",
+    "Paliwo",
+    "Parking",
+    "Ubezpieczenie pojazdu",
+    "Wynajem"
+  ],
+  "Życie i rozrywka": {
+    "Aktywny sport, fitness": ["Tenis"],
+    "Alkohol, tytoń": ["E-Papieros"],
+    "Prezenty dla innych": ["Datki charytatywne"],
+    "Edukacja, rozwój osobisty": ["Studia", "Psycholog", "Kurs Udemy", "Warsztaty"],
+    "Hobby": ["Winyle", "LEGO", "Gitara"],
+    "Książki, audio, subskrypcje": ["Audiobooki", "Książki"],
+    "Kultura": ["Kino", "Koncerty", "Muzeum, galeria", "Teatr"],
+    "Loteria, hazard": [],
+    "Opieka zdrowotna, lekarz": [
+      "Stomatolog",
+      "Medycyna pracy",
+      "Psychiatra",
+      "Gastrolog",
+      "Ortodonta",
+      "Badanie"
+    ],
+    "Streaming, subskrypcje": [
+      "Disney+",
+      "Spotify",
+      "Amazon",
+      "Google Drive",
+      "YouTube Premium",
+      "Allegro SMART",
+      "Apple TV",
+      "Claude"
+    ],
+    "Wakacje, wycieczki, hotele": [],
+    "Wellness, uroda": [],
+    "Wydarzenia życiowe": []
+  },
+  "Komunikacja, komputer": {
+    "Internet": [],
+    "Oprogramowanie, aplikacje, gry": ["Gry", "Playstation Plus", "Konsola", "Nintendo Switch Online"],
+    "Telefon, komórka": [],
+    "Usługi pocztowe": []
+  },
+  "Wydatki finansowe": [
+    "Alimenty",
+    "Doradztwo",
+    "Mandaty",
+    "Opłaty, prowizje",
+    "Podatki",
+    "Pożyczki, odsetki",
+    "Ubezpieczenia"
+  ],
+  "Inwestycje": [
+    "Inwestycje finansowe",
+    "Kolekcje",
+    "Nieruchomości",
+    "Oszczędności",
+    "Pojazdy, mienie ruchome"
+  ],
+  "Przychód": [
+    "Alimenty",
+    "Czeki, kupony, bony",
+    "Dochód z wynajmu",
+    "Loteria, hazard",
+    "Odsetki, dywidendy",
+    "Pożyczki, wynajem",
+    "Prezenty",
+    "Składki i granty",
+    "Sprzedaż",
+    "Wynagrodzenie, faktury",
+    "Zwroty (podatek, zakup)"
+  ],
+  "Inne": ["Brakujące"]
+}

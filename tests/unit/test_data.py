@@ -429,7 +429,7 @@ def test_assign_periods_weekday_payday_matches_calendar(tmp_path: Path) -> None:
     ]
     df = data.load(_write_csv(rows, tmp_path / "weekday_payday.csv"))
     out = data.assign_periods(df, mode="wyplata", payday=21)
-    assert (out["month"] == pd.Period("2026-01", freq="M")).all()
+    assert (out["month"] == pd.Period("2026-02", freq="M")).all()
 
 
 def test_forecast_returns_dict_with_required_keys(sample_df: pd.DataFrame) -> None:
@@ -507,8 +507,8 @@ def test_assign_periods_saturday_payday_shifts_to_friday(tmp_path: Path) -> None
     ]
     df = data.load(_write_csv(rows, tmp_path / "saturday_payday.csv"))
     out = data.assign_periods(df, mode="wyplata", payday=21)
-    assert _month_on(out, "2026-11-19") == pd.Period("2026-10", freq="M")
-    assert _month_on(out, "2026-11-20") == pd.Period("2026-11", freq="M")
+    assert _month_on(out, "2026-11-19") == pd.Period("2026-11", freq="M")
+    assert _month_on(out, "2026-11-20") == pd.Period("2026-12", freq="M")
 
 
 def test_assign_periods_sunday_payday_shifts_to_friday_not_saturday(tmp_path: Path) -> None:
@@ -519,8 +519,8 @@ def test_assign_periods_sunday_payday_shifts_to_friday_not_saturday(tmp_path: Pa
     ]
     df = data.load(_write_csv(rows, tmp_path / "sunday_payday.csv"))
     out = data.assign_periods(df, mode="wyplata", payday=21)
-    assert _month_on(out, "2026-06-18") == pd.Period("2026-05", freq="M")
-    assert _month_on(out, "2026-06-19") == pd.Period("2026-06", freq="M")
+    assert _month_on(out, "2026-06-18") == pd.Period("2026-06", freq="M")
+    assert _month_on(out, "2026-06-19") == pd.Period("2026-07", freq="M")
 
 
 def test_assign_periods_holiday_and_weekend_walks_back_to_workday(tmp_path: Path) -> None:
@@ -537,7 +537,7 @@ def test_assign_periods_holiday_and_weekend_walks_back_to_workday(tmp_path: Path
     ]
     df = data.load(_write_csv(rows, tmp_path / "holiday_payday.csv"))
     out = data.assign_periods(df, mode="wyplata", payday=21)
-    assert (out["month"] == pd.Period("2025-04", freq="M")).all()
+    assert (out["month"] == pd.Period("2025-05", freq="M")).all()
 
 
 def test_assign_periods_year_rollover(tmp_path: Path) -> None:
@@ -551,9 +551,9 @@ def test_assign_periods_year_rollover(tmp_path: Path) -> None:
     df = data.load(_write_csv(rows, tmp_path / "year_rollover.csv"))
     out = data.assign_periods(df, mode="wyplata", payday=21)
     # 2025-12-21 to niedziela -> granica na piątek 2025-12-19.
-    assert _month_on(out, "2025-12-19") == pd.Period("2025-12", freq="M")
-    assert _month_on(out, "2025-12-30") == pd.Period("2025-12", freq="M")
-    assert _month_on(out, "2026-01-21") == pd.Period("2026-01", freq="M")
+    assert _month_on(out, "2025-12-19") == pd.Period("2026-01", freq="M")
+    assert _month_on(out, "2025-12-30") == pd.Period("2026-01", freq="M")
+    assert _month_on(out, "2026-01-21") == pd.Period("2026-02", freq="M")
 
 
 def test_assign_periods_boundary_date_starts_new_window(tmp_path: Path) -> None:
@@ -564,8 +564,8 @@ def test_assign_periods_boundary_date_starts_new_window(tmp_path: Path) -> None:
     ]
     df = data.load(_write_csv(rows, tmp_path / "boundary_inclusive.csv"))
     out = data.assign_periods(df, mode="wyplata", payday=21)
-    assert _month_on(out, "2026-11-19") == pd.Period("2026-10", freq="M")
-    assert _month_on(out, "2026-11-20") == pd.Period("2026-11", freq="M")
+    assert _month_on(out, "2026-11-19") == pd.Period("2026-11", freq="M")
+    assert _month_on(out, "2026-11-20") == pd.Period("2026-12", freq="M")
 
 
 def test_split_periods_wyplata_mode_rebuckets_around_payday(tmp_path: Path) -> None:
@@ -574,13 +574,14 @@ def test_split_periods_wyplata_mode_rebuckets_around_payday(tmp_path: Path) -> N
     cyklu, nawet gdy kalendarzowo znalazłyby się w różnych miesiącach - to
     strukturalna naprawa błędu, dla którego powstaje cała ta zmiana.
 
-    Wypłata za grudzień wpływa 19.12.2025 (piątek, bo 21.12 to niedziela) i
-    otwiera cykl "2025-12". Wydatek z 20.12 jest kalendarzowo też grudniowy,
-    ale wydatek z 30.11 (kalendarzowo listopad) w trybie kalendarzowym
-    trafiłby do innego miesiąca niż ta sama wypłata - w trybie 'wyplata'
-    30.11 nadal należy do POPRZEDNIEGO cyklu ("2025-11"), bo cykl grudniowy
-    zaczyna się dopiero 19.12. Test dokumentuje więc, że granica realnie się
-    przesuwa, nie że wszystko ląduje w jednym worku.
+    Wypłata wpływa 19.12.2025 (piątek, bo 21.12 to niedziela) i otwiera cykl,
+    który finansuje styczeń - etykieta "2026-01". Wydatek z 20.12 jest
+    kalendarzowo grudniowy, ale wydatek z 30.11 (kalendarzowo listopad)
+    w trybie kalendarzowym trafiłby do innego miesiąca niż ta sama wypłata -
+    w trybie 'wyplata' 30.11 nadal należy do POPRZEDNIEGO cyklu ("2025-12",
+    otwartego wypłatą 21.11), bo cykl styczniowy zaczyna się dopiero 19.12.
+    Test dokumentuje więc, że granica realnie się przesuwa, nie że wszystko
+    ląduje w jednym worku.
     """
     rows = [
         _mk_row("PKO", "Wynagrodzenie", 5000, "Przychód", "2025-11-21T00:00:00.000Z"),
@@ -597,10 +598,10 @@ def test_split_periods_wyplata_mode_rebuckets_around_payday(tmp_path: Path) -> N
     active = windows["active"]
     flow = data.monthly_flow(active, ["Konto oszczędnościowe"], drop_incomplete=False)
 
-    nov = flow.loc[pd.Period("2025-11", freq="M")]
-    dec = flow.loc[pd.Period("2025-12", freq="M")]
+    nov = flow.loc[pd.Period("2025-12", freq="M")]  # cykl otwarty wypłatą 21.11
+    dec = flow.loc[pd.Period("2026-01", freq="M")]  # cykl otwarty wypłatą 19.12
     assert nov["przychod"] == pytest.approx(5000)
-    assert nov["wydatki"] == pytest.approx(400)  # 30.11 wciąż w cyklu listopadowym
+    assert nov["wydatki"] == pytest.approx(400)  # 30.11 wciąż w cyklu z wypłaty 21.11
     assert dec["przychod"] == pytest.approx(5000)
     assert dec["wydatki"] == pytest.approx(800)  # 20.12, po przesuniętej granicy 19.12
 
@@ -620,8 +621,10 @@ def test_split_periods_kalendarzowy_default_unchanged(sample_df: pd.DataFrame) -
 def test_monthly_trends_wyplata_mode_reports_okres_od_do(tmp_path: Path) -> None:
     """monthly_trends w trybie 'wyplata' dorzuca realne granice okresu do wyniku."""
     rows = [
-        _mk_row("PKO", "Wynagrodzenie", 5000, "Przychód", "2026-11-20T00:00:00.000Z"),
-        _mk_row("PKO", "Zakupy", 1000, "Wydatek", "2026-11-25T00:00:00.000Z"),
+        # 2026-01-21 is a Wednesday: payday lands on its nominal date; the
+        # window it opens funds February and is labeled "2026-02".
+        _mk_row("PKO", "Wynagrodzenie", 5000, "Przychód", "2026-01-21T00:00:00.000Z"),
+        _mk_row("PKO", "Zakupy", 1000, "Wydatek", "2026-01-25T00:00:00.000Z"),
     ]
     df = data.load(_write_csv(rows, tmp_path / "trends_wyplata.csv"))
     profile = {
@@ -631,9 +634,9 @@ def test_monthly_trends_wyplata_mode_reports_okres_od_do(tmp_path: Path) -> None
     active = data.split_periods(df, profile)["active"]
     result = data.monthly_trends(active, ["Konto oszczędnościowe"])
 
-    assert result["last_month"] == "2026-11"
-    assert result["okres_od"] == "2026-11-20"
-    assert result["okres_do"] is not None
+    assert result["last_month"] == "2026-02"
+    assert result["okres_od"] == "2026-01-21"
+    assert result["okres_do"] == "2026-02-19"
 
 
 def _loan(**overrides: object) -> dict[str, object]:
@@ -944,3 +947,130 @@ def test_forecast_total_uses_horizon_named_key(tmp_path: Path) -> None:
     )
     assert "suma_2m" in result
     assert len(result["horyzont"]) == 2
+
+
+def _breakdown_df(tmp_path: Path) -> pd.DataFrame:
+    """6 months: rent fixed every month, groceries variable, trip in one month."""
+    rows = []
+    for month in range(1, 7):
+        d = f"2026-{month:02d}-05T00:00:00.000Z"
+        rows.append(_mk_row("PKO", "Czynsz", 3000, "Wydatek", d, payee="Landlord"))
+        rows.append(_mk_row("PKO", "Zakupy", 300 + 800 * (month % 2), "Wydatek", d))
+        rows.append(_mk_row("PKO", "Wynagrodzenie", 9000, "Przychód", d))
+    rows.append(_mk_row("PKO", "Urlop", 4000, "Wydatek", "2026-03-20T00:00:00.000Z"))
+    # running month (July) must be dropped by default
+    rows.append(_mk_row("PKO", "Czynsz", 3000, "Wydatek", "2026-07-05T00:00:00.000Z"))
+    csv_path = tmp_path / "breakdown.csv"
+    header = list(rows[0].keys())
+    with csv_path.open("w", encoding="utf-8") as f:
+        f.write(";".join(header) + "\n")
+        for r in rows:
+            f.write(";".join(str(r[k]) for k in header) + "\n")
+    return data.load(csv_path)
+
+
+def test_category_breakdown_classifies_fixed_variable_sporadic(tmp_path: Path) -> None:
+    df = _breakdown_df(tmp_path)
+    result = data.category_breakdown(df, months=6, today=pd.Timestamp("2026-07-10"))
+
+    assert result["okresy"] == [f"2026-0{m}" for m in range(1, 7)]
+    klasa = result["kategorie"].set_index("kategoria")["klasa"]
+    assert klasa["Czynsz"] == "staly"
+    assert klasa["Zakupy"] == "zmienny"
+    assert klasa["Urlop"] == "sporadyczny"
+    assert result["sumy_klas"]["staly"]["mediana_miesieczna"] == 3000.0
+    assert result["sumy_klas"]["staly"]["liczba"] == 1
+    assert result["pivot"].loc["Urlop", "2026-03"] == 4000.0
+
+
+def test_category_breakdown_drops_running_period_and_limits_window(tmp_path: Path) -> None:
+    df = _breakdown_df(tmp_path)
+    result = data.category_breakdown(df, months=3, today=pd.Timestamp("2026-07-10"))
+    assert result["okresy"] == ["2026-04", "2026-05", "2026-06"]
+    assert "2026-07" not in result["pivot"].columns
+
+    kept = data.category_breakdown(
+        df, months=3, today=pd.Timestamp("2026-07-10"), drop_incomplete=False
+    )
+    assert kept["okresy"][-1] == "2026-07"
+
+
+def test_category_breakdown_respects_payday_periods(tmp_path: Path) -> None:
+    df = data.assign_periods(_breakdown_df(tmp_path), mode="wyplata", payday=21)
+    # 2026-07-10 sits inside the window 2026-06-19 .. 2026-07-20, labeled 2026-07
+    result = data.category_breakdown(df, months=12, today=pd.Timestamp("2026-07-10"))
+    assert "2026-07" not in result["okresy"]
+    assert result["okresy"][-1] == "2026-06"
+
+
+def test_category_breakdown_empty_and_invalid(tmp_path: Path) -> None:
+    df = _breakdown_df(tmp_path)
+    empty = data.category_breakdown(df.iloc[0:0], months=3)
+    assert empty["n_okresow"] == 0
+    assert empty["kategorie"].empty
+    assert empty["sumy_klas"]["zmienny"]["liczba"] == 0
+    with pytest.raises(ValueError):
+        data.category_breakdown(df, months=0)
+
+
+def test_category_breakdown_fixed_override_groups_and_events(tmp_path: Path) -> None:
+    df = _breakdown_df(tmp_path)
+    tree_path = tmp_path / "tree.json"
+    tree_path.write_text(
+        '{"Mieszkanie": ["Czynsz"], "Jedzenie": {"Sklep": ["Zakupy"]}, '
+        '"Przychód": ["Zakupy"], "Życie": ["Wakacje"]}',
+        encoding="utf-8",
+    )
+    mapping_path = tmp_path / "mapping.yaml"
+    mapping_path.write_text("aliasy:\n  Urlop: Wakacje\n", encoding="utf-8")
+    tree = data.load_category_tree(tree_path, mapping_path)
+    assert tree == {
+        "Mieszkanie": "Mieszkanie",
+        "Czynsz": "Mieszkanie",
+        "Jedzenie": "Jedzenie",
+        "Sklep": "Jedzenie",
+        "Zakupy": "Jedzenie",
+        "Przychód": "Przychód",
+        "Życie": "Życie",
+        "Wakacje": "Życie",
+        "Urlop": "Życie",
+    }
+    events = [{"od": "2026-03-10", "do": "2026-03-25", "opis": "wyjazd"}]
+    result = data.category_breakdown(
+        df,
+        months=6,
+        today=pd.Timestamp("2026-07-10"),
+        fixed_override=["Zakupy"],
+        tree=tree,
+        events=events,
+    )
+    klasa = result["kategorie"].set_index("kategoria")["klasa"]
+    assert klasa["Zakupy"] == "staly"
+    assert result["sumy_klas"]["staly"]["liczba"] == 2
+    assert list(result["grupy"].index) == ["Mieszkanie", "Jedzenie", "Życie"]
+    assert result["grupy"].loc["Mieszkanie", "mediana"] == 3000.0
+    assert result["grupy"].loc["Życie", "2026-03"] == 4000.0
+    assert result["adnotacje"] == {"2026-03": ["wyjazd"]}
+
+
+def test_category_breakdown_rejects_category_missing_from_tree(tmp_path: Path) -> None:
+    """Every transaction has a category: a name absent from the tree is a config gap."""
+    df = _breakdown_df(tmp_path)
+    tree = {"Czynsz": "Mieszkanie", "Zakupy": "Jedzenie"}
+    with pytest.raises(ValueError, match="Urlop"):
+        data.category_breakdown(df, months=6, today=pd.Timestamp("2026-07-10"), tree=tree)
+
+    tree_path = tmp_path / "tree.json"
+    tree_path.write_text('{"Mieszkanie": ["Czynsz"]}', encoding="utf-8")
+    mapping_path = tmp_path / "mapping.yaml"
+    mapping_path.write_text("aliasy:\n  Urlop: Wakacje\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="Wakacje"):
+        data.load_category_tree(tree_path, mapping_path)
+
+
+def test_monthly_flow_drops_running_payday_window(tmp_path: Path) -> None:
+    """In payday mode the open window carries the NEXT month's label and must still be dropped."""
+    df = data.assign_periods(_breakdown_df(tmp_path), mode="wyplata", payday=21)
+    flow = data.monthly_flow(df, ["Konto oszczędnościowe"], today=pd.Timestamp("2026-07-10"))
+    assert pd.Period("2026-07", freq="M") not in flow.index
+    assert pd.Period("2026-06", freq="M") in flow.index
