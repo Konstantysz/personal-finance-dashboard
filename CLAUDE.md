@@ -9,7 +9,7 @@ Concisely, without decorative headings/emoji. Concrete facts, numbers, source of
 - Format: `uv run ruff format . && uv run ruff check --fix .`
 - Type check: `uv run mypy src`
 - Lint (all): `uv run pre-commit run --all-files`
-- CLI: `uv run personal-finance-dashboard <validate|analyze|monthly|category|invest|taxes|goal>`
+- CLI: `uv run personal-finance-dashboard <validate|analyze|monthly|category|invest|taxes|goal|forecast>`
 
 ## Overriding principle: CLI, not raw data
 
@@ -25,7 +25,8 @@ a full report to `output/reports/*.md` and charts to `output/charts/*.png`, and 
 it - do not load entire reports back into context unless the user asks about
 something the JSON does not cover.
 
-Implemented: `validate`, `analyze`, `monthly`, `category`, `invest`, `taxes`, `goal`.
+Implemented: `validate`, `analyze`, `monthly`, `category`, `invest`, `taxes`, `goal`,
+`forecast`.
 
 ## Updating data/raw/wallet_export.csv
 
