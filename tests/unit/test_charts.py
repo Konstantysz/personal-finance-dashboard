@@ -5,9 +5,11 @@ from __future__ import annotations
 from pathlib import Path
 
 import pandas as pd
+import pytest
 
 from personal_finance_dashboard.charts import (
     plot_category,
+    plot_category_stack,
     plot_goal,
     plot_monthly_flow,
     plot_top_categories,
@@ -35,6 +37,48 @@ def test_plot_top_categories_with_custom_top_n(tmp_path: Path) -> None:
 
     assert out_path.exists()
     assert result == out_path
+
+
+def test_plot_category_stack_creates_file(tmp_path: Path) -> None:
+    """plot_category_stack creates a PNG file."""
+    pivot = pd.DataFrame(
+        {"2026-01": [200, 100], "2026-02": [250, 80]},
+        index=["Jedzenie i napoje", "Transport"],
+    )
+    out_path = tmp_path / "stack.png"
+
+    result = plot_category_stack(pivot, out_path, group_order=["Jedzenie i napoje", "Transport"])
+
+    assert out_path.exists()
+    assert result == out_path
+
+
+def test_plot_category_stack_rolls_leaves_up_to_group(tmp_path: Path) -> None:
+    """Two leaves of the same group collapse into one stacked series, not two."""
+    pivot = pd.DataFrame(
+        {"2026-01": [200, 100, 50]}, index=["Zakupy spożywcze", "Restauracja", "Paliwo"]
+    )
+    group_of = {
+        "Zakupy spożywcze": "Jedzenie i napoje",
+        "Restauracja": "Jedzenie i napoje",
+        "Paliwo": "Transport",
+    }
+    out_path = tmp_path / "stack_grouped.png"
+
+    plot_category_stack(
+        pivot, out_path, group_of=group_of, group_order=["Jedzenie i napoje", "Transport"]
+    )
+
+    assert out_path.exists()
+
+
+def test_plot_category_stack_raises_for_group_without_color(tmp_path: Path) -> None:
+    """A group missing from `_GROUP_COLORS` is a config gap, not a silent fallback."""
+    pivot = pd.DataFrame({"2026-01": [100.0]}, index=["Nieznana grupa"])
+    out_path = tmp_path / "stack_unknown.png"
+
+    with pytest.raises(KeyError):
+        plot_category_stack(pivot, out_path, group_order=["Nieznana grupa"])
 
 
 def test_plot_monthly_flow_creates_file(tmp_path: Path) -> None:

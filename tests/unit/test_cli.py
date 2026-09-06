@@ -893,7 +893,7 @@ def test_categories_command_uses_tree_fixed_and_events(
 ) -> None:
     """Profile keys koszty_stale/wydarzenia and --tree flow through to the JSON."""
     tree = tmp_path / "tree.json"
-    tree.write_text('{"Jedzenie": ["Food"]}', encoding="utf-8")
+    tree.write_text('{"Jedzenie i napoje": ["Food"]}', encoding="utf-8")
     profile = tmp_path / "profile2.yaml"
     text = tmp_profile.read_text(encoding="utf-8").replace(
         "okresy:\n  regime_change_date: 2026-01-01\n",
@@ -918,7 +918,7 @@ def test_categories_command_uses_tree_fixed_and_events(
     assert result.exit_code == 0, result.stdout
     output = json.loads(result.stdout.strip())
     assert output["koszty_stale_potwierdzone"] == 1
-    assert output["grupy"][0]["grupa"] == "Jedzenie"
+    assert output["grupy"][0]["grupa"] == "Jedzenie i napoje"
     assert output["adnotacje"] == {"2026-02": ["trip"]}
 
 

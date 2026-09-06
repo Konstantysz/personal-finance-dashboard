@@ -23,6 +23,7 @@ import typer
 from personal_finance_dashboard import data
 from personal_finance_dashboard.charts import (
     plot_category,
+    plot_category_stack,
     plot_goal,
     plot_monthly_flow,
     plot_top_categories,
@@ -559,6 +560,17 @@ def categories(
     report_path = REPORTS_DIR / f"kategorie_{date.today().isoformat()}.md"
     report_path.write_text(_build_categories_report(result, tryb_okresu), encoding="utf-8")
 
+    stack_chart = None
+    if tree:
+        CHARTS_DIR.mkdir(parents=True, exist_ok=True)
+        group_order = list(json.loads(tree_path.read_text(encoding="utf-8")).keys())
+        stack_chart = plot_category_stack(
+            result["pivot"],
+            CHARTS_DIR / "kategorie_stack.png",
+            group_of=tree,
+            group_order=group_order,
+        )
+
     kategorie = result["kategorie"]
     top: dict[str, list[dict[str, Any]]] = {}
     for klasa in ("staly", "zmienny", "sporadyczny"):
@@ -587,6 +599,7 @@ def categories(
             "adnotacje": result["adnotacje"],
             "koszty_stale_potwierdzone": len(fixed_override),
             "report": str(report_path),
+            "chart": str(stack_chart) if stack_chart else None,
         }
     )
 
