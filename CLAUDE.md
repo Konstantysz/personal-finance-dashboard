@@ -30,6 +30,11 @@ Implemented: `validate`, `analyze`, `monthly`, `category`, `categories`, `invest
 
 ## Updating data/raw/wallet_export.csv
 
+Preferred: `uv run personal-finance-dashboard sync` - pulls the full history
+from the Wallet REST API (`wallet_api.py`, token `BUDGETBAKERS_WALLET_API` in
+`.env`) and overwrites the CSV in export format; English system category names
+are mapped via `api_en` in `config/category_mapping.yaml`. Fallback: manual export below.
+
 `data.py` reads a single CSV path (`data.py:32`) - it does not merge multiple
 files. When new entries appear in Budget Bakers: export the **full history**
 (not a diff/delta) and overwrite `data/raw/wallet_export.csv` wholesale, then

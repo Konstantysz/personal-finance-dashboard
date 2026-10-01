@@ -130,6 +130,47 @@ def validate(
 
 
 @app.command()
+def sync(
+    out: Path = typer.Option(DEFAULT_CSV, "--out", help="Target CSV (overwritten)."),
+    since: str = typer.Option("2000-01-01", "--since", help="Earliest record date."),
+    mapping_path: Path = typer.Option(DEFAULT_MAPPING, "--mapping"),
+) -> None:
+    """
+    Pulls the full record history from the Wallet REST API and overwrites the
+    CSV export with it. Token: BUDGETBAKERS_WALLET_API in env or .env.
+    """
+    import yaml
+
+    from personal_finance_dashboard import wallet_api
+
+    category_names: dict[str, str] = {}
+    if mapping_path.exists():
+        with mapping_path.open(encoding="utf-8") as f:
+            category_names = (yaml.safe_load(f) or {}).get("api_en", {}) or {}
+
+    try:
+        records, last_change = wallet_api.fetch_records(wallet_api.read_token(), since)
+    except wallet_api.WalletApiError as e:
+        _emit({"ok": False, "error": str(e)})
+        raise typer.Exit(code=1) from e
+    if not records:
+        _emit({"ok": False, "error": "API returned no records; CSV left unchanged."})
+        raise typer.Exit(code=1)
+
+    df = wallet_api.records_to_frame(records, category_names)
+    wallet_api.write_csv(df, out)
+    _emit(
+        {
+            "ok": True,
+            "rows": len(df),
+            "date_range": [str(df["date"].min())[:10], str(df["date"].max())[:10]],
+            "last_data_change": last_change,
+            "out": str(out),
+        }
+    )
+
+
+@app.command()
 def analyze(
     csv_path: Path = typer.Option(DEFAULT_CSV, "--csv"),
     profile_path: Path = typer.Option(DEFAULT_PROFILE, "--profile"),
