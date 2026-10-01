@@ -1459,6 +1459,173 @@ def forecast(
     }
 
 
+def _calculate_raty_for_period(loans: list[dict[str, Any]], period: Any) -> float:
+    """Calculate total self-loan installments for a given period.
+
+    Args:
+        loans: List of self-loans from `cele.pozyczki_wlasne`.
+        period: pd.Period representing the period.
+
+    Returns:
+        Sum of installments (rata_miesieczna) due in that period.
+    """
+    return sum(
+        float(loan["rata_miesieczna"])
+        for loan in loans
+        if pd.Period(loan["pierwsza_rata"], freq="M")
+        <= period
+        <= pd.Period(loan["ostatnia_rata"], freq="M")
+    )
+
+
+def budget_status(
+    df: pd.DataFrame, profile: dict[str, Any], today: pd.Timestamp | None = None
+) -> dict[str, Any]:
+    """Analyze spending vs budget in the running period.
+
+    Restricts to the ACTIVE window and the latest unfinished period
+    (via `running_periods`). For every item in `budzet.pozycje`, sums
+    absolute expense amounts by leaf category. Returns allocations,
+    remaining budget, unbudgeted categories, and self-loan installments.
+
+    Args:
+        df: Parsed transactions, as returned by `load` (should already be
+            split via `split_periods`).
+        profile: User profile with `budzet` section and account list.
+        today: Reference date for determining the running period.
+            Defaults to the current date.
+
+    Returns:
+        Dict with periode boundaries, limit_okna, expenses breakdown,
+        unbudgeted categories, jednorazowe plan, raty, and analysis.
+
+    Raises:
+        ValueError: If `budzet` section is missing from profile.
+    """
+    if not profile.get("budzet"):
+        raise ValueError("Profile is missing budzet section")
+
+    today = today or pd.Timestamp.now()
+
+    # Determine the running period
+    periods = running_periods(df, today)
+    if not periods:
+        raise ValueError("No running periods found")
+    latest_period = max(periods)
+
+    # Restrict to the running period and get expenses only
+    exp = expenses(df)
+    exp = exp[exp["month"] == latest_period].copy()
+    exp["amount"] = exp["amount"].abs()
+
+    # Get budget config
+    config = profile["budzet"]
+    limit_okna = config["limit_okna"]
+    limit_rat_self_loan = config.get("limit_rat_self_loan", 0)
+    pozycje_list = config.get("pozycje", [])
+    jednorazowe_data = config.get("jednorazowe", {})
+
+    # Get period boundaries
+    okres_label = str(latest_period)
+    if "month_start" in df.columns and "month_end" in df.columns:
+        month_rows = df[df["month"] == latest_period]
+        if not month_rows.empty:
+            okres_od = str(month_rows["month_start"].iloc[0].date())
+            okres_do = str(month_rows["month_end"].iloc[0].date())
+        else:
+            okres_od = None
+            okres_do = None
+    else:
+        okres_od = str(latest_period.start_time.date())
+        okres_do = str(latest_period.end_time.date())
+
+    # Calculate days to end of period
+    if okres_do:
+        end_date = pd.Timestamp(okres_do)
+        dni_do_konca = max(0, (end_date - today.normalize()).days)
+    else:
+        dni_do_konca = 0
+
+    # Build pozycje breakdown
+    pozycje_result = []
+    total_limit = 0.0
+    total_wydane = 0.0
+
+    for item in pozycje_list:
+        nazwa = item["nazwa"]
+        kategorie = item["kategorie"]
+        limit = float(item["limit"])
+        total_limit += limit
+
+        # Sum amounts for categories in this item
+        wydane = float(
+            exp[exp["category"].isin(kategorie)]["amount"].sum() if not exp.empty else 0.0
+        )
+        total_wydane += wydane
+
+        zostalo = limit - wydane
+        procent = round(100.0 * wydane / limit, 1) if limit > 0 else 0.0
+
+        pozycje_result.append(
+            {
+                "nazwa": nazwa,
+                "limit": round(limit, 2),
+                "wydane": round(wydane, 2),
+                "zostalo": round(zostalo, 2),
+                "procent": procent,
+            }
+        )
+
+    # Unbudgeted categories (reszta)
+    budgeted_cats = set()
+    for item in pozycje_list:
+        budgeted_cats.update(item["kategorie"])
+
+    reszta_data: dict[str, float] = {}
+    if not exp.empty:
+        for cat in exp["category"].unique():
+            if cat not in budgeted_cats:
+                amt = float(exp[exp["category"] == cat]["amount"].sum())
+                if amt > 0:
+                    reszta_data[cat] = amt
+
+    reszta_list = sorted(reszta_data.items(), key=lambda x: x[1], reverse=True)
+    reszta_suma = sum(v for _, v in reszta_list)
+    bufor = limit_okna - total_limit
+
+    # Totals
+    wydane_razem = total_wydane + reszta_suma
+    zostalo_razem = limit_okna - wydane_razem
+
+    # Jednorazowe plan for this period
+    jednorazowe_plan = jednorazowe_data.get(okres_label, [])
+    jednorazowe_plan_suma = sum(float(item.get("kwota", 0)) for item in jednorazowe_plan)
+
+    # Self-loan installments for this period
+    loans = profile.get("cele", {}).get("pozyczki_wlasne", [])
+    raty_suma = _calculate_raty_for_period(loans, latest_period)
+
+    return {
+        "ok": True,
+        "okres": okres_label,
+        "okres_od": okres_od,
+        "okres_do": okres_do,
+        "dni_do_konca": dni_do_konca,
+        "limit_okna": round(limit_okna, 2),
+        "wydane_razem": round(wydane_razem, 2),
+        "zostalo_razem": round(zostalo_razem, 2),
+        "bufor": round(bufor, 2),
+        "pozycje": pozycje_result,
+        "reszta": [{"kategoria": cat, "kwota": round(amt, 2)} for cat, amt in reszta_list],
+        "reszta_suma": round(reszta_suma, 2),
+        "reszta_top5": [{"kategoria": cat, "kwota": round(amt, 2)} for cat, amt in reszta_list[:5]],
+        "jednorazowe_plan": jednorazowe_plan,
+        "jednorazowe_plan_suma": round(jednorazowe_plan_suma, 2),
+        "raty_suma": round(raty_suma, 2),
+        "limit_rat_self_loan": round(limit_rat_self_loan, 2),
+    }
+
+
 def tax_calculation(
     profile: dict[str, Any], params: dict[str, Any], today: pd.Timestamp | None = None
 ) -> dict[str, Any]:

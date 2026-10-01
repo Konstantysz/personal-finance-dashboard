@@ -876,6 +876,113 @@ def _build_forecast_report(result: dict[str, Any]) -> str:
 
 
 @app.command()
+def budget(
+    csv_path: Path = typer.Option(DEFAULT_CSV, "--csv"),
+    profile_path: Path = typer.Option(DEFAULT_PROFILE, "--profile"),
+    today: str | None = typer.Option(
+        None, "--today", help="Reference date (ISO format). Default: today."
+    ),
+) -> None:
+    """Analyze spending vs budget in the running period."""
+    if not csv_path.exists():
+        _emit({"ok": False, "error": f"Missing file {csv_path}"})
+        raise typer.Exit(code=1)
+    if not profile_path.exists():
+        _emit({"ok": False, "error": f"Missing {profile_path}. Run /profile."})
+        raise typer.Exit(code=1)
+
+    df = data.load(csv_path)
+    profile = data.load_profile(profile_path)
+    windows = data.split_periods(df, profile)
+    active = windows["active"]
+
+    if active.empty:
+        _emit({"ok": False, "error": "No data in the ACTIVE window"})
+        raise typer.Exit(code=1)
+
+    today_dt = pd.Timestamp(today) if today else pd.Timestamp.now()
+
+    try:
+        result = data.budget_status(active, profile, today=today_dt)
+    except ValueError as exc:
+        _emit({"ok": False, "error": str(exc)})
+        raise typer.Exit(code=1) from exc
+
+    # Build markdown report
+    report_lines = [
+        f"# Budget status - {result['okres']}",
+        "",
+    ]
+    if result.get("okres_od") and result.get("okres_do"):
+        report_lines.append(f"Period: {result['okres_od']} — {result['okres_do']}")
+    if result.get("dni_do_konca") is not None:
+        report_lines.append(f"Days to end: {result['dni_do_konca']}")
+    report_lines += [
+        "",
+        "## Pozycje budżetowe",
+        "| Nazwa | Limit | Wydane | Zostało | % |",
+        "|---|---|---|---|---|",
+    ]
+
+    for item in result["pozycje"]:
+        line = (
+            f"| {item['nazwa']} | {item['limit']} | {item['wydane']} | "
+            f"{item['zostalo']} | {item['procent']}% |"
+        )
+        report_lines.append(line)
+
+    report_lines += [
+        "",
+        "## Razem pozycje",
+        f"- Limit: {result['limit_okna']} PLN",
+        f"- Wydane: {result['wydane_razem']} PLN",
+        f"- Zostało: {result['zostalo_razem']} PLN",
+        f"- Bufor: {result['bufor']} PLN",
+        "",
+        "## Kategorie poza budżetem (reszta)",
+    ]
+
+    if result["reszta"]:
+        report_lines.append("| Kategoria | Kwota |")
+        report_lines.append("|---|---|")
+        for item in result["reszta"]:
+            report_lines.append(f"| {item['kategoria']} | {item['kwota']} |")
+        report_lines.append(f"\nRazem: {result['reszta_suma']} PLN")
+    else:
+        report_lines.append("Brak")
+
+    report_lines.append("")
+
+    # Jednorazowe
+    if result["jednorazowe_plan"]:
+        report_lines += [
+            "## Zaplanowane jednorazówki",
+            "| Opis | Kwota | Self-loan |",
+            "|---|---|---|",
+        ]
+        for item in result["jednorazowe_plan"]:
+            self_loan = item.get("self_loan", "")
+            report_lines.append(f"| {item['opis']} | {item['kwota']} | {self_loan} |")
+        report_lines.append(f"\nRazem: {result['jednorazowe_plan_suma']} PLN")
+        report_lines.append("")
+
+    # Raty
+    if result["raty_suma"] > 0:
+        report_lines += [
+            "## Self-loan installments",
+            f"- Raty: {result['raty_suma']} PLN",
+            f"- Limit: {result['limit_rat_self_loan']} PLN",
+            "",
+        ]
+
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+    report_path = REPORTS_DIR / f"budzet_{result['okres']}.md"
+    report_path.write_text("\n".join(report_lines), encoding="utf-8")
+
+    _emit({**result, "report": str(report_path)})
+
+
+@app.command()
 def forecast(
     csv_path: Path = typer.Option(DEFAULT_CSV, "--csv"),
     profile_path: Path = typer.Option(DEFAULT_PROFILE, "--profile"),
