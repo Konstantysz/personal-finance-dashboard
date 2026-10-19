@@ -1114,5 +1114,51 @@ def forecast(
     _emit({**result, "report": str(report_path)})
 
 
+@app.command()
+def calendar(
+    csv_path: Path = typer.Option(DEFAULT_CSV, "--csv"),
+    profile_path: Path = typer.Option(DEFAULT_PROFILE, "--profile"),
+    current: bool = typer.Option(False, "--current", help="Running window instead of the next."),
+) -> None:
+    """Payday calendar: income, fixed costs and instalments by day, with running balance."""
+    if not csv_path.exists() or not profile_path.exists():
+        _emit({"ok": False, "error": f"Missing {csv_path} or {profile_path}"})
+        raise typer.Exit(code=1)
+
+    profile = data.load_profile(profile_path)
+    active = data.split_periods(data.load(csv_path), profile)["active"]
+    result = data.payment_calendar(active, profile, current=current)
+
+    lines = [
+        f"# Payday calendar - window {result['okno']} ({result['od']} .. {result['do']})",
+        "",
+        "| Date | Item | P50 | P75 | Balance (P50) |",
+        "|---|---|---:|---:|---:|",
+        *(
+            f"| {r['data']} | {r['pozycja']} | {r['p50']:.2f} | {r['p75']:.2f} "
+            f"| {r['saldo_p50']:.2f} |"
+            for r in result["kalendarz"]
+        ),
+        "",
+        "Left after fixed costs, instalments and investment contributions: "
+        f"{result['dochod'] - result['koszty_p50']:.2f} (P50), "
+        f"{result['dochod'] - result['koszty_p75']:.2f} (P75).",
+        "Fixed = `koszty_stale.potwierdzone`; contributions = median of last 3 windows; "
+        "variable spending is not included.",
+    ]
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+    report_path = REPORTS_DIR / f"calendar_{result['okno']}.md"
+    report_path.write_text("\n".join(lines), encoding="utf-8")
+
+    _emit(
+        {
+            **result,
+            "zostaje_p50": result["dochod"] - result["koszty_p50"],
+            "zostaje_p75": result["dochod"] - result["koszty_p75"],
+            "report": str(report_path),
+        }
+    )
+
+
 if __name__ == "__main__":
     app()

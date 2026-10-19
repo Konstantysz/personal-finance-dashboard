@@ -433,6 +433,106 @@ def detect_fixed_costs(
     )
 
 
+def payment_calendar(
+    active: pd.DataFrame,
+    profile: dict[str, Any],
+    today: pd.Timestamp | None = None,
+    current: bool = False,
+) -> dict[str, Any]:
+    """Day-by-day calendar of the next payday window: income, fixed costs, instalments.
+
+    Fixed costs are the user-confirmed `koszty_stale.potwierdzone` categories.
+    For each, the day inside the payday window is the median offset (days
+    since the window opened) of its largest payment per closed window; the
+    amount is P50 (base) and P75 (conservative) of its per-window total.
+    Instalments come from `cele.pozyczki_wlasne` and fall on the payday.
+
+    Args:
+        active: ACTIVE-window transactions (payday-bucketed or not).
+        profile: Loaded profile; needs `osoba.dzien_wyplaty` and
+            `osoba.dochod_netto_miesiecznie`.
+        today: Reference date (default: now).
+        current: Show the window running on `today` instead of the next one.
+
+    Returns:
+        Window bounds, dated rows with a running balance (base case), and
+        totals for both scenarios.
+    """
+    osoba = profile["osoba"]
+    payday = osoba["dzien_wyplaty"]
+    pay = float(osoba["dochod_netto_miesiecznie"])
+    confirmed = set(profile.get("koszty_stale", {}).get("potwierdzone", []))
+    today = (today or pd.Timestamp.today()).normalize()
+
+    if "month_start" not in active.columns:
+        active = assign_periods(active, mode="wyplata", payday=payday)
+    closed = active[~active["month"].isin(running_periods(active, today))]
+    exp = expenses(closed)
+    exp = exp[exp["category"].isin(confirmed)]
+    exp = exp.assign(
+        offset=(exp["date"].dt.normalize() - exp["month_start"].dt.normalize()).dt.days
+    )
+
+    boundaries, nominal = _payday_boundaries(today, today + pd.Timedelta(days=62), payday)
+    idx = next(i for i, b in enumerate(boundaries) if b > today) - int(current)
+    start, end = boundaries[idx], boundaries[idx + 1] - pd.Timedelta(days=1)
+    label = nominal[idx] + 1
+
+    rows: list[dict[str, Any]] = [
+        {"data": start, "pozycja": "Wypłata", "p50": pay, "p75": pay},
+    ]
+    for loan in profile.get("cele", {}).get("pozyczki_wlasne", []):
+        if _calculate_raty_for_period([loan], label):
+            rate = -float(loan["rata_miesieczna"])
+            rows.append(
+                {"data": start, "pozycja": f"Rata: {loan['nazwa']}", "p50": rate, "p75": rate}
+            )
+    # Investment contributions: known position, as in `forecast` - median of the
+    # last 3 closed windows, same amount in both scenarios.
+    konta = profile.get("konta", {})
+    inv = outflow(closed, konta["biezace"]) if konta.get("biezace") else closed.iloc[:0]
+    inv = inv[inv["account"].isin(konta.get("inwestycyjne", []))]
+    inv = inv[inv["month"].isin(sorted(inv["month"].unique())[-3:])]
+    inv = inv.assign(
+        offset=(inv["date"].dt.normalize() - inv["month_start"].dt.normalize()).dt.days
+    )
+    invested = 0.0
+    for acc, g in inv.groupby("account"):
+        amount = -round(float(g.groupby("month")["amount"].sum().median()), 2)
+        invested -= amount
+        biggest = g.loc[g.groupby("month")["amount"].idxmax()]
+        day = min(start + pd.Timedelta(days=int(biggest["offset"].median())), end)
+        rows.append({"data": day, "pozycja": f"Wpłata: {acc}", "p50": amount, "p75": amount})
+    for cat, g in exp.groupby("category"):
+        totals = g.groupby("month")["amount"].sum()
+        biggest = g.loc[g.groupby("month")["amount"].idxmax()]
+        day = min(start + pd.Timedelta(days=int(biggest["offset"].median())), end)
+        rows.append(
+            {
+                "data": day,
+                "pozycja": cat,
+                "p50": -round(float(totals.median()), 2),
+                "p75": -round(float(totals.quantile(0.75)), 2),
+            }
+        )
+
+    rows.sort(key=lambda r: (r["data"], -r["p50"]))
+    saldo = 0.0
+    for r in rows:
+        saldo = round(saldo + r["p50"], 2)
+        r["saldo_p50"] = saldo
+    return {
+        "okno": str(label),
+        "od": start.date().isoformat(),
+        "do": end.date().isoformat(),
+        "dochod": pay,
+        "inwestycje": round(invested, 2),
+        "koszty_p50": round(-sum(r["p50"] for r in rows if r["pozycja"] != "Wypłata"), 2),
+        "koszty_p75": round(-sum(r["p75"] for r in rows if r["pozycja"] != "Wypłata"), 2),
+        "kalendarz": [{**r, "data": r["data"].date().isoformat()} for r in rows],
+    }
+
+
 # --------------------------------------------------------------------------
 # Market parameters - freshness
 # --------------------------------------------------------------------------
