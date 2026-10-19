@@ -1201,3 +1201,43 @@ def test_income_and_expenses_skip_accounts_excluded_from_stats(tmp_path: Path) -
     assert list(data.income(df)["account"]) == ["PKO"]
     assert data.expenses(df).empty
     assert len(df) == 3  # still loaded, e.g. for validate
+
+
+def test_payment_calendar_dates_fixed_cost_and_balances(tmp_path: Path) -> None:
+    rows = []
+    for payday in ("2026-06-19", "2026-07-21", "2026-08-21", "2026-09-21"):
+        rows.append(_mk_row("PKO", "Wynagrodzenie", 5000, "Przychód", f"{payday}T00:00:00.000Z"))
+    for day in ("2026-06-23", "2026-07-24", "2026-08-24"):  # 2-3 days after payday
+        rows.append(_mk_row("PKO", "Spotify", 20, "Wydatek", f"{day}T00:00:00.000Z"))
+    df = data.load(_write_csv(rows, tmp_path / "cal.csv"))
+    profile = {
+        "osoba": {"dzien_wyplaty": 21, "dochod_netto_miesiecznie": 5000},
+        "koszty_stale": {"potwierdzone": ["Spotify"]},
+    }
+    out = data.payment_calendar(df, profile, today=pd.Timestamp("2026-10-19"))
+
+    assert (out["okno"], out["od"]) == ("2026-11", "2026-10-21")
+    assert [r["pozycja"] for r in out["kalendarz"]] == ["Wypłata", "Spotify"]
+    assert out["kalendarz"][1]["data"] == "2026-10-24"
+    assert out["kalendarz"][1]["saldo_p50"] == pytest.approx(4980)
+    assert out["koszty_p50"] == pytest.approx(20)
+
+
+def test_payment_calendar_includes_investment_contributions(tmp_path: Path) -> None:
+    rows = []
+    for payday, day in (("2026-06-19", "22"), ("2026-07-21", "23"), ("2026-08-21", "24")):
+        rows.append(_mk_row("PKO", "Wynagrodzenie", 5000, "Przychód", f"{payday}T00:00:00.000Z"))
+        t = f"2026-{payday[5:7]}-{day}T00:00:00.000Z"
+        rows.append(_mk_row("PKO", "Przelew, wypłata", 700, "Wydatek", t, True, "xtb"))
+        rows.append(_mk_row("XTB", "Przelew, wypłata", 700, "Przychód", t, True, "xtb"))
+    rows.append(_mk_row("PKO", "Wynagrodzenie", 5000, "Przychód", "2026-09-21T00:00:00.000Z"))
+    df = data.load(_write_csv(rows, tmp_path / "cal_inv.csv"))
+    profile = {
+        "osoba": {"dzien_wyplaty": 21, "dochod_netto_miesiecznie": 5000},
+        "konta": {"biezace": ["PKO"], "inwestycyjne": ["XTB"]},
+    }
+    out = data.payment_calendar(df, profile, today=pd.Timestamp("2026-10-19"))
+
+    assert out["inwestycje"] == pytest.approx(700)
+    assert out["kalendarz"][-1]["pozycja"] == "Wpłata: XTB"
+    assert out["kalendarz"][-1]["saldo_p50"] == pytest.approx(4300)
