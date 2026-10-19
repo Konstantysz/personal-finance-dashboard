@@ -130,6 +130,94 @@ def validate(
 
 
 @app.command()
+def sync(
+    out: Path = typer.Option(DEFAULT_CSV, "--out", help="Target CSV (overwritten)."),
+    since: str = typer.Option("2000-01-01", "--since", help="Earliest record date."),
+    mapping_path: Path = typer.Option(DEFAULT_MAPPING, "--mapping"),
+) -> None:
+    """
+    Pulls the full record history from the Wallet REST API and overwrites the
+    CSV export with it. Token: BUDGETBAKERS_WALLET_API in env or .env.
+    """
+    import yaml
+
+    from personal_finance_dashboard import wallet_api
+
+    category_names: dict[str, str] = {}
+    if mapping_path.exists():
+        with mapping_path.open(encoding="utf-8") as f:
+            category_names = (yaml.safe_load(f) or {}).get("api_en", {}) or {}
+
+    try:
+        token = wallet_api.read_token()
+        records, last_change = wallet_api.fetch_records(token, since)
+        excluded = wallet_api.fetch_excluded_accounts(token)
+    except wallet_api.WalletApiError as e:
+        _emit({"ok": False, "error": str(e)})
+        raise typer.Exit(code=1) from e
+    if not records:
+        _emit({"ok": False, "error": "API returned no records; CSV left unchanged."})
+        raise typer.Exit(code=1)
+
+    df = wallet_api.records_to_frame(records, category_names, excluded)
+    wallet_api.write_csv(df, out)
+    _emit(
+        {
+            "ok": True,
+            "rows": len(df),
+            "date_range": [str(df["date"].min())[:10], str(df["date"].max())[:10]],
+            "last_data_change": last_change,
+            "out": str(out),
+        }
+    )
+
+
+@app.command()
+def ppk(
+    file: Path = typer.Argument(..., help="PPK history export from the provider (.ods)."),
+    send: bool = typer.Option(False, "--send", help="Write to Wallet (default: dry-run)."),
+) -> None:
+    """
+    Updates the Wallet PPK account from the provider's history file: adds the
+    contributions not yet there plus a gain/loss correction to the file's balance.
+    Dry-run unless --send; run `sync` afterwards to refresh the CSV.
+    """
+    from personal_finance_dashboard import wallet_api
+
+    try:
+        token = wallet_api.read_token()
+        accounts, _ = wallet_api._get("/accounts?limit=200", token)
+        acc = next((a for a in accounts["accounts"] if a["name"] == wallet_api.PPK_ACCOUNT), None)
+        if acc is None:
+            raise wallet_api.WalletApiError(f"Account {wallet_api.PPK_ACCOUNT!r} not found")
+        existing: list[dict[str, Any]] = []
+        offset: int | None = 0
+        while offset is not None:
+            body, _ = wallet_api._get(
+                f"/records?accountId={acc['id']}&recordDate=gte.2000-01-01&limit=200&offset={offset}",
+                token,
+            )
+            existing.extend(body.get("records", []))
+            offset = body.get("nextOffset")
+        balance = float(acc["balance"]["currentBalance"])
+        plan = wallet_api.plan_ppk_update(file, existing, balance)
+        sent = wallet_api.push_ppk(token, plan, acc["id"]) if send and plan else 0
+    except wallet_api.WalletApiError as e:
+        _emit({"ok": False, "error": str(e)})
+        raise typer.Exit(code=1) from e
+    _emit(
+        {
+            "ok": True,
+            "dry_run": not send,
+            "balance_before": balance,
+            "new_records": len(plan),
+            "sent": sent,
+            "records": plan if not send else None,
+        }
+    )
+
+
+@app.command()
 def analyze(
     csv_path: Path = typer.Option(DEFAULT_CSV, "--csv"),
     profile_path: Path = typer.Option(DEFAULT_PROFILE, "--profile"),
@@ -873,6 +961,113 @@ def _build_forecast_report(result: dict[str, Any]) -> str:
             )
         report_lines.append("")
     return "\n".join(report_lines)
+
+
+@app.command()
+def budget(
+    csv_path: Path = typer.Option(DEFAULT_CSV, "--csv"),
+    profile_path: Path = typer.Option(DEFAULT_PROFILE, "--profile"),
+    today: str | None = typer.Option(
+        None, "--today", help="Reference date (ISO format). Default: today."
+    ),
+) -> None:
+    """Analyze spending vs budget in the running period."""
+    if not csv_path.exists():
+        _emit({"ok": False, "error": f"Missing file {csv_path}"})
+        raise typer.Exit(code=1)
+    if not profile_path.exists():
+        _emit({"ok": False, "error": f"Missing {profile_path}. Run /profile."})
+        raise typer.Exit(code=1)
+
+    df = data.load(csv_path)
+    profile = data.load_profile(profile_path)
+    windows = data.split_periods(df, profile)
+    active = windows["active"]
+
+    if active.empty:
+        _emit({"ok": False, "error": "No data in the ACTIVE window"})
+        raise typer.Exit(code=1)
+
+    today_dt = pd.Timestamp(today) if today else pd.Timestamp.now()
+
+    try:
+        result = data.budget_status(active, profile, today=today_dt)
+    except ValueError as exc:
+        _emit({"ok": False, "error": str(exc)})
+        raise typer.Exit(code=1) from exc
+
+    # Build markdown report
+    report_lines = [
+        f"# Budget status - {result['okres']}",
+        "",
+    ]
+    if result.get("okres_od") and result.get("okres_do"):
+        report_lines.append(f"Period: {result['okres_od']} — {result['okres_do']}")
+    if result.get("dni_do_konca") is not None:
+        report_lines.append(f"Days to end: {result['dni_do_konca']}")
+    report_lines += [
+        "",
+        "## Pozycje budżetowe",
+        "| Nazwa | Limit | Wydane | Zostało | % |",
+        "|---|---|---|---|---|",
+    ]
+
+    for item in result["pozycje"]:
+        line = (
+            f"| {item['nazwa']} | {item['limit']} | {item['wydane']} | "
+            f"{item['zostalo']} | {item['procent']}% |"
+        )
+        report_lines.append(line)
+
+    report_lines += [
+        "",
+        "## Razem pozycje",
+        f"- Limit: {result['limit_okna']} PLN",
+        f"- Wydane: {result['wydane_razem']} PLN",
+        f"- Zostało: {result['zostalo_razem']} PLN",
+        f"- Bufor: {result['bufor']} PLN",
+        "",
+        "## Kategorie poza budżetem (reszta)",
+    ]
+
+    if result["reszta"]:
+        report_lines.append("| Kategoria | Kwota |")
+        report_lines.append("|---|---|")
+        for item in result["reszta"]:
+            report_lines.append(f"| {item['kategoria']} | {item['kwota']} |")
+        report_lines.append(f"\nRazem: {result['reszta_suma']} PLN")
+    else:
+        report_lines.append("Brak")
+
+    report_lines.append("")
+
+    # Jednorazowe
+    if result["jednorazowe_plan"]:
+        report_lines += [
+            "## Zaplanowane jednorazówki",
+            "| Opis | Kwota | Self-loan |",
+            "|---|---|---|",
+        ]
+        for item in result["jednorazowe_plan"]:
+            self_loan = item.get("self_loan", "")
+            report_lines.append(f"| {item['opis']} | {item['kwota']} | {self_loan} |")
+        report_lines.append(f"\nRazem: {result['jednorazowe_plan_suma']} PLN")
+        report_lines.append("")
+
+    # Raty
+    if result["raty_suma"] > 0:
+        report_lines += [
+            "## Self-loan installments",
+            f"- Raty: {result['raty_suma']} PLN",
+            f"- Limit: {result['limit_rat_self_loan']} PLN",
+            "",
+        ]
+
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+    report_path = REPORTS_DIR / f"budzet_{result['okres']}.md"
+    report_path.write_text("\n".join(report_lines), encoding="utf-8")
+
+    _emit({**result, "report": str(report_path)})
 
 
 @app.command()

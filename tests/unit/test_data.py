@@ -1074,3 +1074,130 @@ def test_monthly_flow_drops_running_payday_window(tmp_path: Path) -> None:
     flow = data.monthly_flow(df, ["Konto oszczędnościowe"], today=pd.Timestamp("2026-07-10"))
     assert pd.Period("2026-07", freq="M") not in flow.index
     assert pd.Period("2026-06", freq="M") in flow.index
+
+
+def test_budget_status_sums_by_category(tmp_path: Path) -> None:
+    """budget_status sums expenses per item's categories and calculates remaining."""
+    rows = []
+    for day in [5, 15, 25]:
+        rows.append(
+            _mk_row("PKO", "Wynagrodzenie", 11900, "Przychód", f"2026-09-{day:02d}T00:00:00.000Z")
+        )
+        rows.append(_mk_row("PKO", "Czynsz", 3940, "Wydatek", f"2026-09-{day:02d}T00:00:00.000Z"))
+        rows.append(_mk_row("PKO", "Psycholog", 240, "Wydatek", f"2026-09-{day:02d}T00:00:00.000Z"))
+        rows.append(_mk_row("PKO", "Catering", 400, "Wydatek", f"2026-09-{day:02d}T00:00:00.000Z"))
+        rows.append(_mk_row("PKO", "Inne", 100, "Wydatek", f"2026-09-{day:02d}T00:00:00.000Z"))
+
+    csv_path = tmp_path / "wallet.csv"
+    header = list(rows[0].keys())
+    with csv_path.open("w", encoding="utf-8") as f:
+        f.write(";".join(header) + "\n")
+        for r in rows:
+            f.write(";".join(str(r[k]) for k in header) + "\n")
+
+    df = data.load(csv_path)
+    profile = {
+        "okresy": {"regime_change_date": "2026-01-01"},
+        "osoba": {"tryb_okresu": "kalendarzowy", "dzien_wyplaty": 21},
+        "konta": {"oszczednosciowe": []},
+        "cele": {"pozyczki_wlasne": []},
+        "budzet": {
+            "limit_okna": 9600,
+            "limit_rat_self_loan": 300,
+            "pozycje": [
+                {"nazwa": "Czynsz", "kategorie": ["Czynsz"], "limit": 3940},
+                {"nazwa": "Psycholog", "kategorie": ["Psycholog"], "limit": 960},
+                {"nazwa": "Catering", "kategorie": ["Catering"], "limit": 1250},
+            ],
+            "jednorazowe": {},
+        },
+    }
+
+    result = data.budget_status(df, profile, today=pd.Timestamp("2026-09-20"))
+
+    assert result["ok"]
+    assert result["okres"] == "2026-09"
+    # 3 days x (3940 + 240 + 400 + 100) = 3 x 4680 = 14040 total
+    assert result["wydane_razem"] == pytest.approx(14040, rel=1e-2)
+    # Czynsz: 3x3940 = 11820
+    assert result["pozycje"][0]["wydane"] == pytest.approx(11820, rel=1e-2)
+    assert result["pozycje"][0]["zostalo"] == pytest.approx(3940 - 11820, rel=1e-2)
+    # Psycholog: spent 3x240 = 720
+    assert result["pozycje"][1]["wydane"] == pytest.approx(720, rel=1e-2)
+    # Catering: spent 3x400 = 1200
+    assert result["pozycje"][2]["wydane"] == pytest.approx(1200, rel=1e-2)
+    # Reszta: Inne spent 3x100 = 300
+    assert result["reszta_suma"] == pytest.approx(300, rel=1e-2)
+    assert len(result["reszta"]) == 1
+    assert result["reszta"][0]["kategoria"] == "Inne"
+
+
+def test_budget_status_raises_on_missing_budzet(sample_df: pd.DataFrame) -> None:
+    """budget_status raises ValueError if profile lacks budzet section."""
+    profile = {
+        "okresy": {"regime_change_date": "2026-01-01"},
+        "osoba": {"tryb_okresu": "kalendarzowy"},
+        "konta": {"oszczednosciowe": []},
+        "cele": {"pozyczki_wlasne": []},
+    }
+    with pytest.raises(ValueError, match="budzet"):
+        data.budget_status(sample_df, profile, today=pd.Timestamp("2026-02-15"))
+
+
+def test_budget_status_includes_raty_from_loans(tmp_path: Path) -> None:
+    """budget_status includes self-loan installments (raty) for the period."""
+    rows = []
+    for day in [5, 15]:
+        rows.append(
+            _mk_row("PKO", "Wynagrodzenie", 11900, "Przychód", f"2026-09-{day:02d}T00:00:00.000Z")
+        )
+        rows.append(_mk_row("PKO", "Czynsz", 1000, "Wydatek", f"2026-09-{day:02d}T00:00:00.000Z"))
+
+    csv_path = tmp_path / "wallet.csv"
+    header = list(rows[0].keys())
+    with csv_path.open("w", encoding="utf-8") as f:
+        f.write(";".join(header) + "\n")
+        for r in rows:
+            f.write(";".join(str(r[k]) for k in header) + "\n")
+
+    df = data.load(csv_path)
+    profile = {
+        "okresy": {"regime_change_date": "2026-01-01"},
+        "osoba": {"tryb_okresu": "kalendarzowy"},
+        "konta": {"oszczednosciowe": []},
+        "cele": {
+            "pozyczki_wlasne": [
+                {
+                    "nazwa": "test_loan",
+                    "rata_miesieczna": 50.0,
+                    "pierwsza_rata": "2026-09",
+                    "ostatnia_rata": "2026-12",
+                }
+            ]
+        },
+        "budzet": {
+            "limit_okna": 9600,
+            "limit_rat_self_loan": 300,
+            "pozycje": [{"nazwa": "Czynsz", "kategorie": ["Czynsz"], "limit": 3000}],
+            "jednorazowe": {},
+        },
+    }
+
+    result = data.budget_status(df, profile, today=pd.Timestamp("2026-09-20"))
+    assert result["raty_suma"] == pytest.approx(50.0, rel=1e-2)
+
+
+def test_income_and_expenses_skip_accounts_excluded_from_stats(tmp_path: Path) -> None:
+    csv = tmp_path / "x.csv"
+    csv.write_text(
+        "account;category;amount;type;date;transfer;exclude_from_stats\n"
+        "PKO;Pensja;100;Przychód;2026-01-10T10:00:00Z;false;false\n"
+        "PPK;Składki;50;Przychód;2026-01-10T10:00:00Z;false;true\n"
+        "PPK;Opłata;5;Wydatek;2026-01-10T10:00:00Z;false;true\n",
+        encoding="utf-8",
+    )
+    df = data.load(csv)
+
+    assert list(data.income(df)["account"]) == ["PKO"]
+    assert data.expenses(df).empty
+    assert len(df) == 3  # still loaded, e.g. for validate

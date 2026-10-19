@@ -946,3 +946,52 @@ def test_categories_command_fails_on_category_missing_from_tree(
     output = json.loads(result.stdout.strip())
     assert output["ok"] is False
     assert "Food" in output["error"]
+
+
+def test_budget_command_success(tmp_csv: Path, tmp_path: Path) -> None:
+    """budget command succeeds with valid CSV and profile containing budzet section."""
+    profile_path = tmp_path / "profile.yaml"
+    profile_path.write_text(
+        "okresy:\n"
+        "  regime_change_date: 2026-01-01\n"
+        "osoba:\n"
+        "  tryb_okresu: kalendarzowy\n"
+        "konta:\n"
+        "  biezace:\n"
+        "    - Checking\n"
+        "  oszczednosciowe:\n"
+        "    - Savings\n"
+        "  salda_rzeczywiste:\n"
+        "    wartosci:\n"
+        "      Checking: 5000\n"
+        "      Savings: 10000\n"
+        "stan_wdrozenia:\n"
+        "  poduszka_finansowa_kwota: 5000\n"
+        "cele:\n"
+        "  krotkoterminowe: []\n"
+        "  dlugoterminowe: []\n"
+        "  pozyczki_wlasne: []\n"
+        "budzet:\n"
+        "  limit_okna: 5000\n"
+        "  limit_rat_self_loan: 300\n"
+        "  pozycje:\n"
+        "    - nazwa: Food\n"
+        "      kategorie: [Food]\n"
+        "      limit: 1000\n"
+        "  jednorazowe: {}\n",
+        encoding="utf-8",
+    )
+
+    # Use a date within the CSV data range (1-6 months)
+    result = runner.invoke(
+        app,
+        ["budget", "--csv", str(tmp_csv), "--profile", str(profile_path), "--today", "2026-06-15"],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    output = json.loads(result.stdout.strip())
+    assert output["ok"]
+    assert output["okres"] == "2026-06"
+    assert "limit_okna" in output
+    assert "wydane_razem" in output
+    assert "report" in output
