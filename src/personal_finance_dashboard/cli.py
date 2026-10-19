@@ -171,6 +171,51 @@ def sync(
 
 
 @app.command()
+def ppk(
+    file: Path = typer.Argument(..., help="PPK history export from the provider (.ods)."),
+    send: bool = typer.Option(False, "--send", help="Write to Wallet (default: dry-run)."),
+) -> None:
+    """
+    Updates the Wallet PPK account from the provider's history file: adds the
+    contributions not yet there plus a gain/loss correction to the file's balance.
+    Dry-run unless --send; run `sync` afterwards to refresh the CSV.
+    """
+    from personal_finance_dashboard import wallet_api
+
+    try:
+        token = wallet_api.read_token()
+        accounts, _ = wallet_api._get("/accounts?limit=200", token)
+        acc = next((a for a in accounts["accounts"] if a["name"] == wallet_api.PPK_ACCOUNT), None)
+        if acc is None:
+            raise wallet_api.WalletApiError(f"Account {wallet_api.PPK_ACCOUNT!r} not found")
+        existing: list[dict[str, Any]] = []
+        offset: int | None = 0
+        while offset is not None:
+            body, _ = wallet_api._get(
+                f"/records?accountId={acc['id']}&recordDate=gte.2000-01-01&limit=200&offset={offset}",
+                token,
+            )
+            existing.extend(body.get("records", []))
+            offset = body.get("nextOffset")
+        balance = float(acc["balance"]["currentBalance"])
+        plan = wallet_api.plan_ppk_update(file, existing, balance)
+        sent = wallet_api.push_ppk(token, plan, acc["id"]) if send and plan else 0
+    except wallet_api.WalletApiError as e:
+        _emit({"ok": False, "error": str(e)})
+        raise typer.Exit(code=1) from e
+    _emit(
+        {
+            "ok": True,
+            "dry_run": not send,
+            "balance_before": balance,
+            "new_records": len(plan),
+            "sent": sent,
+            "records": plan if not send else None,
+        }
+    )
+
+
+@app.command()
 def analyze(
     csv_path: Path = typer.Option(DEFAULT_CSV, "--csv"),
     profile_path: Path = typer.Option(DEFAULT_PROFILE, "--profile"),

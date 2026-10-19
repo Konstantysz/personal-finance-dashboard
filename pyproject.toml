@@ -20,6 +20,7 @@ dependencies = [
     "matplotlib>=3.7",
     "tabulate>=0.9",
     "holidays>=0.103",
+    "odfpy>=1.4.1",
 ]
 
 
