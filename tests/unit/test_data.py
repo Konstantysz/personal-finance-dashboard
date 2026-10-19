@@ -1185,3 +1185,19 @@ def test_budget_status_includes_raty_from_loans(tmp_path: Path) -> None:
 
     result = data.budget_status(df, profile, today=pd.Timestamp("2026-09-20"))
     assert result["raty_suma"] == pytest.approx(50.0, rel=1e-2)
+
+
+def test_income_and_expenses_skip_accounts_excluded_from_stats(tmp_path: Path) -> None:
+    csv = tmp_path / "x.csv"
+    csv.write_text(
+        "account;category;amount;type;date;transfer;exclude_from_stats\n"
+        "PKO;Pensja;100;Przychód;2026-01-10T10:00:00Z;false;false\n"
+        "PPK;Składki;50;Przychód;2026-01-10T10:00:00Z;false;true\n"
+        "PPK;Opłata;5;Wydatek;2026-01-10T10:00:00Z;false;true\n",
+        encoding="utf-8",
+    )
+    df = data.load(csv)
+
+    assert list(data.income(df)["account"]) == ["PKO"]
+    assert data.expenses(df).empty
+    assert len(df) == 3  # still loaded, e.g. for validate

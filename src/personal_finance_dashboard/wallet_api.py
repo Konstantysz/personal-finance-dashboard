@@ -94,7 +94,9 @@ def fetch_records(token: str, since: str = HISTORY_START) -> tuple[list[dict[str
 
 
 def records_to_frame(
-    records: list[dict[str, Any]], category_names: dict[str, str] | None = None
+    records: list[dict[str, Any]],
+    category_names: dict[str, str] | None = None,
+    excluded_accounts: frozenset[str] = frozenset(),
 ) -> pd.DataFrame:
     """Maps API records to the CSV export columns that `data.load()` reads.
 
@@ -102,10 +104,11 @@ def records_to_frame(
         records: Raw records from `fetch_records`.
         category_names: API (English) system category name -> export name
             (`api_en` in config/category_mapping.yaml). Unmapped names pass through.
+        excluded_accounts: Names of accounts flagged `excludeFromStats` in Wallet.
 
     Returns:
         DataFrame with account, category, currency, amount, ref_currency_amount,
-        type, payee, note, labels, date, transfer.
+        type, payee, note, labels, date, transfer, exclude_from_stats.
     """
     names = category_names or {}
     rows = []
@@ -128,9 +131,18 @@ def records_to_frame(
                 "labels": "|".join(lbl.get("name", "") for lbl in r.get("labels") or []),
                 "date": r["recordDate"],
                 "transfer": "true" if r.get("transfer") else "false",
+                "exclude_from_stats": "true"
+                if r.get("accountName") in excluded_accounts
+                else "false",
             }
         )
     return pd.DataFrame(rows)
+
+
+def fetch_excluded_accounts(token: str) -> frozenset[str]:
+    """Names of accounts with `excludeFromStats` set in Wallet."""
+    body, _ = _get("/accounts?limit=200", token)
+    return frozenset(a["name"] for a in body["accounts"] if a.get("excludeFromStats"))
 
 
 def write_csv(df: pd.DataFrame, path: Path) -> None:

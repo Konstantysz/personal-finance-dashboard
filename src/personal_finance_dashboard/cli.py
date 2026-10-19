@@ -149,7 +149,9 @@ def sync(
             category_names = (yaml.safe_load(f) or {}).get("api_en", {}) or {}
 
     try:
-        records, last_change = wallet_api.fetch_records(wallet_api.read_token(), since)
+        token = wallet_api.read_token()
+        records, last_change = wallet_api.fetch_records(token, since)
+        excluded = wallet_api.fetch_excluded_accounts(token)
     except wallet_api.WalletApiError as e:
         _emit({"ok": False, "error": str(e)})
         raise typer.Exit(code=1) from e
@@ -157,7 +159,7 @@ def sync(
         _emit({"ok": False, "error": "API returned no records; CSV left unchanged."})
         raise typer.Exit(code=1)
 
-    df = wallet_api.records_to_frame(records, category_names)
+    df = wallet_api.records_to_frame(records, category_names, excluded)
     wallet_api.write_csv(df, out)
     _emit(
         {

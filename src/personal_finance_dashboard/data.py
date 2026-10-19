@@ -52,6 +52,10 @@ def load(csv_path: str | Path) -> pd.DataFrame:
     df["date"] = df["date"].dt.tz_convert("Europe/Warsaw").dt.tz_localize(None)
 
     df["transfer"] = df["transfer"].astype(str).str.strip().str.lower() == "true"
+    # Wallet "exclude from stats" accounts (e.g. PPK): kept for net worth and
+    # validation, but left out of income()/expenses().
+    excluded = df["exclude_from_stats"] if "exclude_from_stats" in df.columns else "false"
+    df["exclude_from_stats"] = pd.Series(excluded, index=df.index).astype(str).str.lower() == "true"
     df["type"] = df["type"].astype(str).str.strip()
 
     for col in ("account", "category", "payee", "note", "labels", "payment_type"):
@@ -127,14 +131,21 @@ def audit_transfers(df: pd.DataFrame) -> TransferAudit:
 # --------------------------------------------------------------------------
 
 
+def _excluded(df: pd.DataFrame) -> pd.Series:
+    """Rows of accounts excluded from stats (all False if the column is absent)."""
+    if "exclude_from_stats" in df.columns:
+        return df["exclude_from_stats"].astype(bool)
+    return pd.Series(False, index=df.index)
+
+
 def income(df: pd.DataFrame) -> pd.DataFrame:
     """Actual income: transfers are NOT income."""
-    return df[(df["type"] == TYPE_INCOME) & (~df["transfer"])]
+    return df[(df["type"] == TYPE_INCOME) & ~df["transfer"] & ~_excluded(df)]
 
 
 def expenses(df: pd.DataFrame) -> pd.DataFrame:
     """Actual expenses: transfers are NOT expenses."""
-    return df[(df["type"] == TYPE_EXPENSE) & (~df["transfer"])]
+    return df[(df["type"] == TYPE_EXPENSE) & ~df["transfer"] & ~_excluded(df)]
 
 
 def savings(df: pd.DataFrame, savings_accounts: list[str]) -> pd.DataFrame:
